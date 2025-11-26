@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "mcp__apifox__read_project_oas_9ncx2y",
+      "mcp__apifox__read_project_oas_ref_resources_9ncx2y",
+      "mcp__apifox__refresh_project_oas_9ncx2y"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
