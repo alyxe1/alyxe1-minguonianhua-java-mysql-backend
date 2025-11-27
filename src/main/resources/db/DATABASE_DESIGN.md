@@ -57,6 +57,7 @@
 | subtitle | VARCHAR(200) | 副标题 |
 | description | TEXT | 主题详细描述 |
 | cover_image | VARCHAR(255) | 封面图片URL |
+| address | VARCHAR(255) | 地址 |
 | banner_images | JSON | 轮播图片JSON数组，灵活存储多图 |
 | price | BIGINT | 基础价格（分） |
 | categories | JSON | 分类标签，如["民国风", "高端"] |
@@ -77,7 +78,7 @@
 
 ### 3. sessions（场次表）
 
-**描述**：主题的场次信息，定义具体时间和容量
+**描述**：场次模板，定义场次的固定信息，不绑定具体日期
 
 **字段说明**：
 | 字段名 | 类型 | 说明 |
@@ -87,20 +88,71 @@
 | session_type | VARCHAR(50) | 场次类型（如"晚餐场"、"夜场"） |
 | session_name | VARCHAR(100) | 场次名称 |
 | max_capacity | INT UNSIGNED | 最大容量 |
-| available_seats | INT UNSIGNED | 可用座位数 |
+| total_seats | INT UNSIGNED | 总座位数（模板库存） |
+| total_makeup | INT UNSIGNED | 化妆总库存（模板库存） |
+| total_photography | INT UNSIGNED | 摄影总库存（模板库存） |
 | price | BIGINT | 场次价格（可覆盖主题基础价） |
-| start_time | DATETIME | 开始时间 |
-| end_time | DATETIME | 结束时间 |
+| start_time | TIME | 开始时间（格式：18:00:00） |
+| end_time | TIME | 结束时间（格式：21:00:00） |
+| status | TINYINT(1) | 状态：1-可用，0-不可用 |
 
 **业务规则**：
-- `max_capacity`和`available_seats`实时控制可售数量
-- 当`available_seats`为0时，前端显示"已售罄"
-- `price`字段允许同主题不同场次价格差异化
+- sessions表是**场次模板**，不存储具体日期的库存
+- 每次查询某天的场次时，系统会自动从模板创建或查询`daily_sessions`记录
+- `total_*`字段是模板库存，首次查询某天时会复制到`daily_sessions`表作为初始库存
+- 今天的预订不影响明天的库存，场次按天独立
 
 **关联关系**：
 - 多对一关联`themes`（多个场次属于一个主题）
+- 一对多关联`daily_sessions`（一个模板对应多个每日实例）
 - 一对多关联`seats`（一个场次多个座位）
-- 一对多关联`bookings`（一个场次多个预订）
+
+---
+
+### 3.1 daily_sessions（每日场次表）
+
+**描述**：记录每天每个场次的实际库存，是sessions表的每日实例
+
+**字段说明**：
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| id | BIGINT UNSIGNED | 主键 |
+| session_id | BIGINT UNSIGNED | 外键，关联sessions表（模板ID） |
+| date | DATE | 具体日期 |
+| available_seats | INT UNSIGNED | 可用座位数（当天剩余） |
+| makeup_stock | INT UNSIGNED | 化妆库存（当天剩余） |
+| photography_stock | INT UNSIGNED | 摄影库存（当天剩余） |
+| created_at | TIMESTAMP | 创建时间 |
+| updated_at | TIMESTAMP | 更新时间 |
+
+**业务规则**：
+- 首次查询某天的场次时，自动从`sessions`模板创建记录
+- 库存从模板的`total_*`字段复制作为初始值
+- 每次预订成功时，减少对应的库存（在daily_sessions表中减）
+- 场次按天独立，今天的预订不影响明天
+- 如果当天的场次卖完了（库存=0），不影响其他日期
+
+**关键流程**：
+```
+查询2025-11-28的场次
+  ↓
+查询sessions表获取所有场次模板
+  ↓
+对每个场次模板：
+  查询daily_sessions表（session_id=?, date='2025-11-28'）
+  如果存在 → 返回实际库存
+  如果不存在 →
+    创建新记录：
+      session_id = 模板ID
+      date = '2025-11-28'
+      available_seats = sessions.total_seats
+      makeup_stock = sessions.total_makeup
+      photography_stock = sessions.total_photography
+    返回新记录
+```
+
+**关联关系**：
+- 多对一关联`sessions`（多个每日实例对应一个模板）
 
 ---
 
@@ -162,11 +214,41 @@
 - 前端"创建订单"时生成booking记录
 - 30分钟内未支付自动取消（status=2）
 - 支付成功后创建对应的`orders`记录
+- **库存管理**：实际库存从`daily_sessions`表读取和扣减，不是sessions表
+
+**库存扣减流程**：
+```
+用户预订2025-11-28的晚餐场，预订5个座位
+  ↓
+查询daily_sessions表（session_id=模板ID, date='2025-11-28'）
+  ↓
+验证available_seats≥5
+  ↓
+daily_sessions.available_seats = available_seats - 5
+  ↓
+创建booking记录
+  ↓
+如果还购买了化妆服务
+daily_sessions.makeup_stock = makeup_stock - 1
+```
+
+**库存回滚**（取消订单或超时）：
+```
+订单取消或30分钟未支付
+  ↓
+查询booking记录对应的session_id和booking_date
+  ↓
+daily_sessions.available_seats = available_seats + 预订座位数
+如果包含化妆/摄影服务，对应库存也回滚
+  ↓
+更新booking.status = 2（已取消）
+```
 
 **关联关系**：
 - 多对一关联`users`（多个预订属于一个用户）
 - 多对一关联`themes`（多个预订属于一个主题）
-- 多对一关联`sessions`（多个预订属于一个场次）
+- 多对一关联`sessions`（多个预订属于一个场次模板）
+- 一对多关联`daily_sessions`（通过session_id和booking_date关联）
 - 一对多关联`booking_seats`（一个预订多个座位）
 - 一对多关联`orders`（一个预订对应多个订单，考虑分次支付场景）
 
@@ -518,6 +600,7 @@ UPDATE seats SET status = 0 WHERE id IN (...)
 |------|------|----------|------|
 | 1.0 | 2025-11-26 | 初始版本 | Claude Code |
 | 1.1 | 2025-11-27 | 添加主题图片表和商品表 | Claude Code |
+| 2.0 | 2025-11-28 | **重构场次业务逻辑**：<br>1. sessions表改为模板模式（不绑定日期）<br>2. 新增daily_sessions表记录每日库存<br>3. start_time/end_time改为TIME类型<br>4. 更新库存管理和查询逻辑 | Claude Code |
 
 ---
 

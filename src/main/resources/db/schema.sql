@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS `themes` (
     `subtitle` VARCHAR(200) NOT NULL DEFAULT '' COMMENT '主题副标题',
     `description` TEXT NOT NULL COMMENT '主题描述',
     `cover_image` VARCHAR(255) NOT NULL COMMENT '封面图片',
+    `address` VARCHAR(255) NOT NULL DEFAULT '' COMMENT '地址',
     `banner_images` JSON NOT NULL COMMENT '轮播图片JSON数组',
     `price` BIGINT NOT NULL DEFAULT '0' COMMENT '价格（分）',
     `categories` JSON NOT NULL COMMENT '分类标签JSON数组',

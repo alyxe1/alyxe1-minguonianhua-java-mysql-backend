@@ -27,6 +27,9 @@ public class Theme {
     @TableField("cover_image")
     private String coverImage;
 
+    @TableField("address")
+    private String address;
+
     @TableField("banner_images")
     private String bannerImages; // JSON字符串
 
