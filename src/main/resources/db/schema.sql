@@ -49,12 +49,12 @@ CREATE TABLE IF NOT EXISTS `sessions` (
     `session_type` VARCHAR(50) NOT NULL COMMENT '场次类型',
     `session_name` VARCHAR(100) NOT NULL COMMENT '场次名称',
     `max_capacity` INT UNSIGNED NOT NULL COMMENT '最大容量',
-    `available_seats` INT UNSIGNED NOT NULL COMMENT '可用座位数',
-    `makeup_stock` INT UNSIGNED NOT NULL DEFAULT '0' COMMENT '化妆库存',
-    `photography_stock` INT UNSIGNED NOT NULL DEFAULT '0' COMMENT '摄影库存',
+    `total_seats` INT UNSIGNED NOT NULL DEFAULT '0' COMMENT '总座位数',
+    `total_makeup` INT UNSIGNED NOT NULL DEFAULT '0' COMMENT '化妆总库存',
+    `total_photography` INT UNSIGNED NOT NULL DEFAULT '0' COMMENT '摄影总库存',
     `price` BIGINT NOT NULL DEFAULT '0' COMMENT '价格（分）',
-    `start_time` DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00' COMMENT '开始时间',
-    `end_time` DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00' COMMENT '结束时间',
+    `start_time` TIME NOT NULL DEFAULT '18:00:00' COMMENT '开始时间',
+    `end_time` TIME NOT NULL DEFAULT '21:00:00' COMMENT '结束时间',
     `status` TINYINT(1) NOT NULL DEFAULT '1' COMMENT '状态：1-可用，0-不可用',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -63,6 +63,21 @@ CREATE TABLE IF NOT EXISTS `sessions` (
     KEY `idx_theme_id` (`theme_id`),
     KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='场次表';
+
+-- 每日场次表
+CREATE TABLE IF NOT EXISTS `daily_sessions` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '每日场次ID',
+    `session_id` BIGINT UNSIGNED NOT NULL COMMENT '场次模板ID',
+    `date` DATE NOT NULL COMMENT '具体日期',
+    `available_seats` INT UNSIGNED NOT NULL COMMENT '可用座位数',
+    `makeup_stock` INT UNSIGNED NOT NULL COMMENT '化妆库存',
+    `photography_stock` INT UNSIGNED NOT NULL COMMENT '摄影库存',
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_session_date` (`session_id`, `date`),
+    KEY `idx_date` (`date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='每日场次表';
 
 -- 座位表
 CREATE TABLE IF NOT EXISTS `seats` (

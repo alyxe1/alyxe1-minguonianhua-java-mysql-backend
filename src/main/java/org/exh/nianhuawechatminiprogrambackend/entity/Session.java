@@ -4,9 +4,11 @@ import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 /**
  * 场次实体类
+ * 场次模板，不绑定具体日期
  */
 @Data
 @TableName("sessions")
@@ -27,23 +29,23 @@ public class Session {
     @TableField("max_capacity")
     private Integer maxCapacity;
 
-    @TableField("available_seats")
-    private Integer availableSeats;
+    @TableField("total_seats")
+    private Integer totalSeats;
 
-    @TableField("makeup_stock")
-    private Integer makeupStock;
+    @TableField("total_makeup")
+    private Integer totalMakeup;
 
-    @TableField("photography_stock")
-    private Integer photographyStock;
+    @TableField("total_photography")
+    private Integer totalPhotography;
 
     @TableField("price")
     private Long price;
 
     @TableField("start_time")
-    private LocalDateTime startTime;
+    private LocalTime startTime;
 
     @TableField("end_time")
-    private LocalDateTime endTime;
+    private LocalTime endTime;
 
     @TableField("status")
     private Integer status;
