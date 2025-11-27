@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS `sessions` (
     `session_name` VARCHAR(100) NOT NULL COMMENT '场次名称',
     `max_capacity` INT UNSIGNED NOT NULL COMMENT '最大容量',
     `available_seats` INT UNSIGNED NOT NULL COMMENT '可用座位数',
+    `makeup_stock` INT UNSIGNED NOT NULL DEFAULT '0' COMMENT '化妆库存',
+    `photography_stock` INT UNSIGNED NOT NULL DEFAULT '0' COMMENT '摄影库存',
     `price` BIGINT NOT NULL DEFAULT '0' COMMENT '价格（分）',
     `start_time` DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00' COMMENT '开始时间',
     `end_time` DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00' COMMENT '结束时间',
