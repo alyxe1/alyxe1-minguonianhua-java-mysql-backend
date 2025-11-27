@@ -24,6 +24,11 @@ spring:
       filters: stat,wall
       connection-properties: druid.stat.mergeSql=true;druid.stat.slowSqlMillis=5000
 
+  # Spring Boot 2.6+ 与 Swagger 兼容性问题修复
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: GMT+8
@@ -48,7 +53,7 @@ mybatis-plus:
 
 jwt:
   secret: your_jwt_secret_key_at_least_32_characters_long
-  expiration: 3600000
+  expiration: 86400000  # 24小时 = 24 * 60 * 60 * 1000 = 86,400,000毫秒
   refresh-expiration: 604800000
 
 wx:
@@ -61,6 +66,15 @@ wx:
     serial-number: ${WX_SERIAL_NUMBER:your_serial_number}
     apiv3-key: ${WX_API_V3_KEY:your_apiv3_key}
     notify-url: ${WX_NOTIFY_URL:https://your-domain.com/api/v1/payment/notify}
+
+# 阿里云OSS配置
+oss:
+  access-key-id: ${OSS_ACCESS_KEY_ID}
+  access-key-secret: ${OSS_ACCESS_KEY_SECRET}
+  endpoint: ${OSS_ENDPOINT:oss-cn-shanghai.aliyuncs.com}
+  bucket-domain: ${OSS_BUCKET_DOMAIN:nianhua-test.oss-cn-shanghai.aliyuncs.com}
+  bucket-name: ${OSS_BUCKET_NAME:nianhua-test}
+  base-dir: nianhua
 
 logging:
   level:

@@ -32,6 +32,10 @@ build/
 ### VS Code ###
 .vscode/
 
+### Env Files ###
+.env
+.env.local
+.env.*.local
 
 ### CLAUDE
 models_settings/

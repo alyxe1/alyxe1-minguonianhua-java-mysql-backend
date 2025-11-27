@@ -170,8 +170,9 @@ public class JwtUtil {
     }
 
     private SecretKey getSecretKey() {
-        byte[] encodedKey = Base64.getDecoder().decode(jwtConfig.getSecret());
-        return new SecretKeySpec(encodedKey, 0, encodedKey.length, "AES");
+        // JWT secret应该至少32个字符，直接转换为字节数组用于HS256
+        byte[] keyBytes = jwtConfig.getSecret().getBytes();
+        return new SecretKeySpec(keyBytes, SignatureAlgorithm.HS256.getJcaName());
     }
 
     public JwtConfig getJwtConfig() {
