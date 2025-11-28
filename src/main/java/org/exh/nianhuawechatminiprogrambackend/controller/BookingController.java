@@ -5,9 +5,12 @@ import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
 import lombok.extern.slf4j.Slf4j;
 import org.exh.nianhuawechatminiprogrambackend.dto.request.CheckSeatRequest;
+import org.exh.nianhuawechatminiprogrambackend.dto.request.CreateBookingRequest;
 import org.exh.nianhuawechatminiprogrambackend.dto.response.CheckSeatResponse;
+import org.exh.nianhuawechatminiprogrambackend.dto.response.CreateBookingResponse;
 import org.exh.nianhuawechatminiprogrambackend.dto.response.SessionSeatDetailResponse;
 import org.exh.nianhuawechatminiprogrambackend.dto.response.ThemeDetailResponse;
+import org.exh.nianhuawechatminiprogrambackend.service.BookingService;
 import org.exh.nianhuawechatminiprogrambackend.service.CheckSeatService;
 import org.exh.nianhuawechatminiprogrambackend.service.SessionSeatDetailService;
 import org.exh.nianhuawechatminiprogrambackend.service.ThemeService;
@@ -34,6 +37,9 @@ public class BookingController {
 
     @Autowired
     private SessionSeatDetailService sessionSeatDetailService;
+
+    @Autowired
+    private BookingService bookingService;
 
     @ApiOperation(value = "主题预订详情页", notes = "获取主题预订详情页信息，包含头部图片、标题和地址")
     @GetMapping("/themePageInfo")
@@ -74,6 +80,19 @@ public class BookingController {
         SessionSeatDetailResponse response = sessionSeatDetailService.getSessionSeatDetail(sessionType, date);
 
         log.info("获取场次座位详情成功，座位总数：{}个", response.getSeatDetailList().size());
+        return Result.success(response);
+    }
+
+    @ApiOperation(value = "创建预订", notes = "用户选择座位和商品后创建预订，支持高并发抢座")
+    @PostMapping("/createOrder")
+    public Result<CreateBookingResponse> createBooking(@RequestBody @Valid CreateBookingRequest request) {
+        log.info("创建预订请求，userId={}, sessionType={}, date={}, seatCount={}, goodsCount={}",
+                request.getUserId(), request.getSessionType(), request.getDate(),
+                request.getSelectedSeatList().size(), request.getSelectedGoodList().size());
+
+        CreateBookingResponse response = bookingService.createBooking(request);
+
+        log.info("预订创建成功，orderId={}, amount={}", response.getOrderId(), response.getAmount());
         return Result.success(response);
     }
 }
