@@ -18,6 +18,9 @@ public class Goods {
     @TableField("name")
     private String name;
 
+    @TableField("sub_title")
+    private String subTitle;
+
     @TableField("description")
     private String description;
 

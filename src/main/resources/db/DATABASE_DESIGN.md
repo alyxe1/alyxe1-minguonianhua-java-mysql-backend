@@ -398,6 +398,7 @@ daily_sessions.available_seats = available_seats + 预订座位数
 |--------|------|------|
 | id | BIGINT UNSIGNED | 主键 |
 | name | VARCHAR(100) | 商品名称 |
+| sub_title | VARCHAR(200) | 商品副标题 |
 | description | TEXT | 商品描述 |
 | price | BIGINT | 价格（分） |
 | image_url | VARCHAR(255) | 商品图片 |

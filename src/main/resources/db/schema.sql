@@ -207,6 +207,7 @@ CREATE TABLE IF NOT EXISTS `theme_images` (
 CREATE TABLE IF NOT EXISTS `goods` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '商品ID',
     `name` VARCHAR(100) NOT NULL COMMENT '商品名称',
+    `sub_title` VARCHAR(200) NOT NULL DEFAULT '' COMMENT '商品副标题',
     `description` TEXT NOT NULL COMMENT '商品描述',
     `price` BIGINT NOT NULL DEFAULT '0' COMMENT '价格（分）',
     `image_url` VARCHAR(255) NOT NULL DEFAULT '' COMMENT '商品图片',

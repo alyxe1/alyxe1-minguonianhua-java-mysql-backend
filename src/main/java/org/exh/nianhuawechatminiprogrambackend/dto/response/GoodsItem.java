@@ -28,6 +28,11 @@ public class GoodsItem {
     private String title;
 
     /**
+     * 商品副标题
+     */
+    private String subTitle;
+
+    /**
      * 商品描述
      */
     private String description;

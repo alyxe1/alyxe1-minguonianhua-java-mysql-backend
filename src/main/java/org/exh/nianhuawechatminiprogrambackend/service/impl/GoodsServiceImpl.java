@@ -97,23 +97,39 @@ public class GoodsServiceImpl implements GoodsService {
     /**
      * 将Goods实体转换为GoodsItem DTO
      * 价格从分转换为元（除以100）
+     * 注意：价格不能为null或0，防止用户免费获取商品
      */
     private GoodsItem convertToGoodsItem(Goods goods) {
+        // 1. 校验价格不能为空
+        if (goods.getPrice() == null) {
+            log.error("商品ID={}的价格为null，商品名称={}", goods.getId(), goods.getName());
+            throw new BusinessException(ResultCode.ERROR, "商品价格异常");
+        }
+
+        // 2. 校验价格不能为0
+        if (goods.getPrice() == 0) {
+            log.error("商品ID={}的价格为0，商品名称={}", goods.getId(), goods.getName());
+            throw new BusinessException(ResultCode.ERROR, "商品价格不能为0");
+        }
+
+        // 3. 校验价格必须大于0
+        if (goods.getPrice() < 0) {
+            log.error("商品ID={}的价格为负数，商品名称={}，价格={}", goods.getId(), goods.getName(), goods.getPrice());
+            throw new BusinessException(ResultCode.ERROR, "商品价格异常");
+        }
+
         GoodsItem item = new GoodsItem();
         item.setGoodId(goods.getId());
         item.setTitle(goods.getName());
+        item.setSubTitle(goods.getSubTitle() != null ? goods.getSubTitle() : "");
         item.setDescription(goods.getDescription());
         item.setImageUrl(goods.getImageUrl());
         item.setType(convertCategoryToType(goods.getCategory()));
         item.setTag(goods.getTag());
 
         // 价格从分转换为元，保留两位小数
-        if (goods.getPrice() != null) {
-            double priceInYuan = goods.getPrice() / 100.0;
-            item.setPrice(String.format("%.2f", priceInYuan));
-        } else {
-            item.setPrice("0.00");
-        }
+        double priceInYuan = goods.getPrice() / 100.0;
+        item.setPrice(String.format("%.2f", priceInYuan));
 
         return item;
     }
