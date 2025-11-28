@@ -391,7 +391,7 @@ daily_sessions.available_seats = available_seats + 预订座位数
 
 ### 11. goods（商品表）
 
-**描述**：附加商品，如写真、化妆、摄影服务、座位包
+**描述**：附加商品，如写真、化妆、摄影服务、座位包、套餐
 
 **字段说明**：
 | 字段名 | 类型 | 说明 |
@@ -401,14 +401,20 @@ daily_sessions.available_seats = available_seats + 预订座位数
 | description | TEXT | 商品描述 |
 | price | BIGINT | 价格（分） |
 | image_url | VARCHAR(255) | 商品图片 |
-| category | VARCHAR(50) | photo-写真，makeup-化妆，photography-摄影，seat_package-座位商品包 |
+| category | VARCHAR(50) | photos-写真/摄影，makeup-化妆，seat_package-座位商品包，sets-套餐 |
 | status | TINYINT(1) | 上下架状态 |
-| stock | INT UNSIGNED | 库存 |
+| tag | VARCHAR(50) | 标签 |
 
 **业务场景**：
 - 用户预订时可加购商品
 - `seat_package`用于打包销售座位（如情侣包）
-- 库存管理防止超卖
+- 注意：商品本身不存储库存，写真/化妆/摄影服务的库存从`daily_sessions`表获取
+
+**类型说明**：
+- photos: 写真/摄影服务（统一使用photos，接口文档使用photos）
+- makeup: 化妆服务
+- seat_package: 座位商品包
+- sets: 套餐
 
 **关联关系**：
 - 多对多关联`bookings`（通过`booking_goods`表）

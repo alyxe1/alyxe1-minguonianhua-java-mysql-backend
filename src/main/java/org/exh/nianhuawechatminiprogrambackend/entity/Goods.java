@@ -28,13 +28,13 @@ public class Goods {
     private String imageUrl;
 
     @TableField("category")
-    private String category; // photo, makeup, photography, seat_package
+    private String category; // photos-写真/摄影, makeup-化妆, seat_package-座位商品包, sets-套餐
 
     @TableField("status")
     private Integer status;
 
-    @TableField("stock")
-    private Integer stock;
+    @TableField("tag")
+    private String tag; // 标签
 
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
