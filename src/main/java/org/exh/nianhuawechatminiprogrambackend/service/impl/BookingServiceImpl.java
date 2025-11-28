@@ -124,16 +124,19 @@ public class BookingServiceImpl implements BookingService {
             // 10. 生成订单号
             String orderNo = IdGenerator.generateOrderNo();
 
-            // 11. 计算总金额
-            Long totalAmount = calculateTotalAmount(request.getSelectedGoodList(), goodsList);
+            // 11. 计算总金额（分）
+            Long totalAmountInFen = calculateTotalAmount(request.getSelectedGoodList(), goodsList);
 
-            // 12. 创建预订记录
+            // 12. 转换为元（响应需要元为单位）
+            Long totalAmountInYuan = totalAmountInFen / 100;
+
+            // 13. 创建预订记录（数据库中存储分）
             Booking booking = new Booking();
             booking.setUserId(request.getUserId());
             booking.setThemeId(session.getThemeId());
             booking.setDailySessionId(dailySession.getId());
             booking.setOrderNo(orderNo);
-            booking.setTotalAmount(totalAmount);
+            booking.setTotalAmount(totalAmountInFen); // 数据库存储分
             booking.setSeatCount(request.getSelectedSeatList().size());
             booking.setBookingDate(bookingDate);
             booking.setStatus(0); // 0-待支付
@@ -150,14 +153,14 @@ public class BookingServiceImpl implements BookingService {
             // 15. 扣减库存（使用乐观锁防止超卖）
             reduceInventory(dailySession, request.getSelectedGoodList(), goodsList);
 
-            // 16. 构建响应
+            // 16. 构建响应（返回元为单位）
             CreateBookingResponse response = new CreateBookingResponse();
             response.setBookingId(String.valueOf(booking.getId()));
-            response.setAmount(totalAmount);
+            response.setAmount(totalAmountInYuan); // 响应返回元
             response.setPaymentStatus("UNPAID");
             response.setExpireTime(LocalDateTime.now().plusMinutes(10).toString());
 
-            log.info("创建预订成功，bookingId={}, amount={}", booking.getId(), totalAmount);
+            log.info("创建预订成功，bookingId={}, amount={}元", booking.getId(), totalAmountInYuan);
             return response;
 
         } catch (Exception e) {
