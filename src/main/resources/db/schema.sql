@@ -215,6 +215,7 @@ CREATE TABLE IF NOT EXISTS `goods` (
     `category` VARCHAR(50) NOT NULL DEFAULT 'photos' COMMENT '商品分类：photos-写真/摄影，makeup-化妆，seat_package-座位商品包，sets-套餐',
     `status` TINYINT(1) NOT NULL DEFAULT '1' COMMENT '状态：1-上架，0-下架',
     `tag` VARCHAR(50) NOT NULL DEFAULT '' COMMENT '标签',
+    `seat_consumption_config` JSON COMMENT '座位区域消耗配置，JSON格式：[{"area":"front|middle|back","number":整数}]，例如：[{"area":"front","number":2},{"area":"middle","number":0},{"area":"back","number":0}] 表示该商品消耗2个前排座位',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `is_deleted` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '是否删除：0-未删除，1-已删除',

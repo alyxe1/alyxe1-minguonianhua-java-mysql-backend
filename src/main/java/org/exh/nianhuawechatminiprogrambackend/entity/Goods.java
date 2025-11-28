@@ -39,6 +39,9 @@ public class Goods {
     @TableField("tag")
     private String tag; // 标签
 
+    @TableField("seat_consumption_config")
+    private String seatConsumptionConfig = "[{\"area\":\"front\",\"number\":0},{\"area\":\"middle\",\"number\":0},{\"area\":\"back\",\"number\":0}]"; // JSON字符串，座位区域消耗配置，默认为各区域0个座位
+
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

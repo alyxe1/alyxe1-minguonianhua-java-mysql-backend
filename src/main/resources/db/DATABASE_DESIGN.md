@@ -401,6 +401,28 @@ daily_sessions.available_seats = available_seats + 预订座位数
 | category | VARCHAR(50) | photos-写真/摄影，makeup-化妆，seat_package-座位商品包，sets-套餐 |
 | status | TINYINT(1) | 上下架状态 |
 | tag | VARCHAR(50) | 标签 |
+| seat_consumption_config | JSON | 座位区域消耗配置，JSON数组格式，记录front/middle/back区域消耗数量 |
+
+**座位消耗配置示例**：
+```json
+-- 生日双人VIP套餐（消耗2个前排座位）
+[{"area":"front","number":2},{"area":"middle","number":0},{"area":"back","number":0}]
+
+-- 三人摄影普通场套餐（消耗3个后排座位）
+[{"area":"front","number":0},{"area":"middle","number":0},{"area":"back","number":3}]
+```
+
+**业务场景**：
+- 用户预订时可加购商品
+- `seat_package`用于打包销售座位（如情侣包）
+- 注意：商品本身不存储库存，写真/化妆/摄影服务的库存从`daily_sessions`表获取
+- `seat_consumption_config`用于记录套餐类商品消耗的座位区域和数量，在校验库存时使用
+
+**类型说明**：
+- photos: 写真/摄影服务（统一使用photos，接口文档使用photos）
+- makeup: 化妆服务
+- seat_package: 座位商品包
+- sets: 套餐
 
 **业务场景**：
 - 用户预订时可加购商品
