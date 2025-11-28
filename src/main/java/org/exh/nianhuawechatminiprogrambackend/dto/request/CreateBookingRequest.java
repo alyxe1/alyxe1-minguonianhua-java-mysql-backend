@@ -1,10 +1,6 @@
 package org.exh.nianhuawechatminiprogrambackend.dto.request;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.NoArgsConstructor;
-
-import javax.validation.Valid;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotEmpty;
 import javax.validation.constraints.NotNull;
@@ -14,14 +10,12 @@ import java.util.List;
  * 创建预订请求 DTO
  */
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 public class CreateBookingRequest {
 
     /**
-     * 场次ID
+     * 场次类型（lunch/dinner）
      */
-    @NotBlank(message = "场次ID不能为空")
+    @NotBlank(message = "场次类型不能为空")
     private String sessionType;
 
     /**
@@ -31,32 +25,27 @@ public class CreateBookingRequest {
     private String date;
 
     /**
-     * 用户ID
+     * 用户ID（从JWT token中获取，也可以从前端传入）
      */
-    @NotNull(message = "用户ID不能为空")
-    private Integer userId;
+    private Long userId;
 
     /**
-     * 选择的商品列表
+     * 选择的商品列表（写真、化妆、摄影、座位商品包）
      */
-    @Valid
     @NotEmpty(message = "商品列表不能为空")
     private List<SelectedGood> selectedGoodList;
 
     /**
      * 选择的座位列表
      */
-    @Valid
     @NotEmpty(message = "座位列表不能为空")
-    private List<SelectedSeat> selectedSeatList;
+    private List<SelectedSeatForBooking> selectedSeatList;
 
     /**
-     * 选择的座位 DTO
+     * 选择的座位详情（用于预订时使用）
      */
     @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class SelectedSeat {
+    public static class SelectedSeatForBooking {
         /**
          * 座位ID
          */
