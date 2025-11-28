@@ -72,16 +72,12 @@ public class BookingCleanupScheduler {
                         .eq(BookingSeat::getBookingId, booking.getId())
         );
 
-        // 2. 释放座位锁
-        for (BookingSeat bookingSeat : bookingSeats) {
-            seatLockManager.releaseLock(
-                    booking.getDailySessionId(),
-                    String.valueOf(bookingSeat.getSeatId())
-            );
-        }
+        // 2. 批量释放该用户的所有座位锁（使用正确的API）
+        seatLockManager.releaseAllUserSeatLocks(booking.getDailySessionId(), booking.getUserId());
 
-        // 3. 恢复库存（TODO: 这里需要实现库存恢复逻辑，根据booking_goods计算需要恢复的库存）
-        // 由于时间原因，暂时不实现完整的库存恢复逻辑，后续补充
+        // 3. 恢复库存（TODO: 需要实现完整的库存恢复逻辑）
+        // 由于时间原因，这只是一个简化版本
+        log.warn("库存恢复逻辑待完善");
 
         // 4. 更新预订状态为已取消（2-已取消）
         booking.setStatus(2);

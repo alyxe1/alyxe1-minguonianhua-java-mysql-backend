@@ -14,7 +14,7 @@ import org.exh.nianhuawechatminiprogrambackend.exception.BusinessException;
 import org.exh.nianhuawechatminiprogrambackend.mapper.*;
 import org.exh.nianhuawechatminiprogrambackend.service.BookingService;
 import org.exh.nianhuawechatminiprogrambackend.util.SeatLockManager;
-import org.exh.nianhuawechatminiprogrambackend.util.SnowflakeIdWorker;
+import org.exh.nianhuawechatminiprogrambackend.util.IdGenerator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,9 +57,6 @@ public class BookingServiceImpl implements BookingService {
 
     @Autowired
     private SeatLockManager seatLockManager;
-
-    @Autowired
-    private SnowflakeIdWorker snowflakeIdWorker;
 
     private static final String AREA_FRONT = "front";
     private static final String AREA_MIDDLE = "middle";
@@ -125,7 +122,7 @@ public class BookingServiceImpl implements BookingService {
             validateInventory(dailySession, request.getSelectedGoodList(), goodsList);
 
             // 10. 生成订单号
-            String orderNo = String.valueOf(snowflakeIdWorker.nextId());
+            String orderNo = IdGenerator.generateOrderNo();
 
             // 11. 计算总金额
             Long totalAmount = calculateTotalAmount(request.getSelectedGoodList(), goodsList);
@@ -220,7 +217,7 @@ public class BookingServiceImpl implements BookingService {
                         new TypeReference<List<AreaConfig>>() {}
                 );
 
-                int quantity = Integer.parseInt(good.getSelectedCount());
+                int quantity = good.getSelectedCount();
                 for (AreaConfig config : configs) {
                     String area = config.getArea();
                     int count = config.getNumber() * quantity;
@@ -265,7 +262,7 @@ public class BookingServiceImpl implements BookingService {
                 boolean locked = seatLockManager.tryLockSeat(sessionId, seatId, userId);
                 if (!locked) {
                     log.error("座位锁定失败，seatId={}", seatId);
-                    releaseLockedSeats(lockedSeats, sessionId);
+                    releaseLockedSeats(lockedSeats, sessionId, userId);
                     throw new BusinessException(ResultCode.SEAT_ALREADY_LOCKED, "座位已被锁定");
                 }
                 lockedSeats.add(seatId);
@@ -273,14 +270,14 @@ public class BookingServiceImpl implements BookingService {
             log.info("座位锁定成功，共锁定{}个座位", lockedSeats.size());
             return lockedSeats;
         } catch (Exception e) {
-            releaseLockedSeats(lockedSeats, sessionId);
+            releaseLockedSeats(lockedSeats, sessionId, userId);
             throw e;
         }
     }
 
-    private void releaseLockedSeats(List<String> lockedSeats, Long sessionId) {
+    private void releaseLockedSeats(List<String> lockedSeats, Long sessionId, Long userId) {
         for (String seatId : lockedSeats) {
-            seatLockManager.releaseLock(sessionId, seatId);
+            seatLockManager.releaseSeatLock(sessionId, seatId, userId);
         }
     }
 
@@ -299,7 +296,7 @@ public class BookingServiceImpl implements BookingService {
             Goods goods = goodsMap.get(good.getGoodId());
             if (goods == null) continue;
 
-            int quantity = Integer.parseInt(good.getSelectedCount());
+            int quantity = good.getSelectedCount();
             String category = goods.getCategory();
 
             if ("makeup".equals(category)) {
@@ -351,7 +348,7 @@ public class BookingServiceImpl implements BookingService {
         for (SelectedGood good : selectedGoods) {
             Goods goods = goodsMap.get(good.getGoodId());
             if (goods != null) {
-                int quantity = Integer.parseInt(good.getSelectedCount());
+                int quantity = good.getSelectedCount();
                 totalAmount += goods.getPrice() * quantity;
             }
         }
@@ -389,7 +386,7 @@ public class BookingServiceImpl implements BookingService {
             BookingGoods bookingGoods = new BookingGoods();
             bookingGoods.setBookingId(bookingId);
             bookingGoods.setGoodsId(selectedGood.getGoodId());
-            bookingGoods.setQuantity(Integer.parseInt(selectedGood.getSelectedCount()));
+            bookingGoods.setQuantity(selectedGood.getSelectedCount());
             bookingGoods.setPrice(goods != null ? goods.getPrice() : 0L);
 
             bookingGoodsMapper.insert(bookingGoods);
@@ -416,7 +413,7 @@ public class BookingServiceImpl implements BookingService {
             Goods goods = goodsMap.get(good.getGoodId());
             if (goods == null) continue;
 
-            int quantity = Integer.parseInt(good.getSelectedCount());
+            int quantity = good.getSelectedCount();
             String category = goods.getCategory();
 
             if ("makeup".equals(category)) {
