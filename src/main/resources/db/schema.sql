@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS `daily_sessions` (
 -- 座位表
 CREATE TABLE IF NOT EXISTS `seats` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '座位ID',
-    `session_id` BIGINT UNSIGNED NOT NULL COMMENT '场次ID',
+    `session_template_id` BIGINT UNSIGNED NOT NULL COMMENT '场次模板ID',
     `seat_id` VARCHAR(50) NOT NULL COMMENT '座位编号',
     `seat_name` VARCHAR(50) NOT NULL COMMENT '座位名称',
     `seat_type` VARCHAR(20) NOT NULL DEFAULT 'front' COMMENT '座位类型：front-前排，middle-中排，back-后排',
@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS `seats` (
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `idx_session_seat` (`session_id`, `seat_id`),
+    UNIQUE KEY `idx_session_template_seat` (`session_template_id`, `seat_id`),
     KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='座位表';
 
@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS `bookings` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '预订ID',
     `user_id` BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
     `theme_id` BIGINT UNSIGNED NOT NULL COMMENT '主题ID',
-    `session_id` BIGINT UNSIGNED NOT NULL COMMENT '场次ID',
+    `daily_session_id` BIGINT UNSIGNED NOT NULL COMMENT '每日场次ID',
     `order_no` VARCHAR(32) NOT NULL COMMENT '订单号',
     `total_amount` BIGINT NOT NULL COMMENT '总金额（分）',
     `seat_count` INT UNSIGNED NOT NULL COMMENT '座位数量',
@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS `bookings` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `idx_order_no` (`order_no`),
     KEY `idx_user_id` (`user_id`),
+    KEY `idx_daily_session_id` (`daily_session_id`),
     KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='预订表';
 

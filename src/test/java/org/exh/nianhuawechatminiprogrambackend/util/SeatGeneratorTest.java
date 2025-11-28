@@ -116,7 +116,7 @@ public class SeatGeneratorTest {
 
     private Seat createSeat(Long sessionId, int seatIndex) {
         Seat seat = new Seat();
-        seat.setSessionId(sessionId);
+        seat.setSessionTemplateId(sessionId);
         seat.setStatus(0);
 
         int tableIndex = seatIndex / PEOPLE_PER_TABLE;
@@ -148,21 +148,21 @@ public class SeatGeneratorTest {
 
             long frontCount = seatMapper.selectCount(
                     new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Seat>()
-                            .eq(Seat::getSessionId, sessionId)
+                            .eq(Seat::getSessionTemplateId, sessionId)
                             .eq(Seat::getSeatType, FRONT_TYPE)
             );
             log.info("前排座位数: {}", frontCount);
 
             long middleCount = seatMapper.selectCount(
                     new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Seat>()
-                            .eq(Seat::getSessionId, sessionId)
+                            .eq(Seat::getSessionTemplateId, sessionId)
                             .eq(Seat::getSeatType, MIDDLE_TYPE)
             );
             log.info("中排座位数: {}", middleCount);
 
             long backCount = seatMapper.selectCount(
                     new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Seat>()
-                            .eq(Seat::getSessionId, sessionId)
+                            .eq(Seat::getSessionTemplateId, sessionId)
                             .eq(Seat::getSeatType, BACK_TYPE)
             );
             log.info("后排座位数: {}", backCount);

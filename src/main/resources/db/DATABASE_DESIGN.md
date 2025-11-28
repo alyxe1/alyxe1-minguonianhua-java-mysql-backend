@@ -164,7 +164,7 @@
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
 | id | BIGINT UNSIGNED | 主键 |
-| session_id | BIGINT UNSIGNED | 外键，关联sessions表 |
+| session_template_id | BIGINT UNSIGNED | 外键，关联sessions表（场次模板） |
 | seat_id | VARCHAR(50) | 座位编号（如"A1"） |
 | seat_name | VARCHAR(50) | 座位名称（如"前排1号"） |
 | seat_type | VARCHAR(20) | 类型：front-前排，middle-中排，back-后排 |
@@ -178,10 +178,10 @@
    - 支付完成后status=2（已预订）
    - 超时未支付则status=0（释放）
 
-**唯一约束**：`idx_session_seat`确保场次内座位号唯一
+**唯一约束**：`idx_session_template_seat`确保场次模板内座位号唯一
 
 **关联关系**：
-- 多对一关联`sessions`（多个座位属于一个场次）
+- 多对一关联`sessions`（多个座位属于一个场次模板）
 - 多对多关联`bookings`（通过`booking_seats`关联表）
 
 ---
@@ -196,7 +196,7 @@
 | id | BIGINT UNSIGNED | 主键 |
 | user_id | BIGINT UNSIGNED | 外键，关联users表 |
 | theme_id | BIGINT UNSIGNED | 外键，关联themes表 |
-| session_id | BIGINT UNSIGNED | 外键，关联sessions表 |
+| daily_session_id | BIGINT UNSIGNED | 外键，关联daily_sessions表（每日场次实例） |
 | order_no | VARCHAR(32) | 订单号，唯一索引 |
 | total_amount | BIGINT | 总金额（分） |
 | seat_count | INT UNSIGNED | 预订座位数量 |
@@ -214,29 +214,26 @@
 - 前端"创建订单"时生成booking记录
 - 30分钟内未支付自动取消（status=2）
 - 支付成功后创建对应的`orders`记录
-- **库存管理**：实际库存从`daily_sessions`表读取和扣减，不是sessions表
+- **库存管理**：实际库存从`daily_sessions`表读取和扣减
 
 **库存扣减流程**：
 ```
 用户预订2025-11-28的晚餐场，预订5个座位
   ↓
-查询daily_sessions表（session_id=模板ID, date='2025-11-28'）
+查询daily_sessions表（daily_session_id=?, date='2025-11-28'）
   ↓
 验证available_seats≥5
   ↓
 daily_sessions.available_seats = available_seats - 5
   ↓
 创建booking记录
-  ↓
-如果还购买了化妆服务
-daily_sessions.makeup_stock = makeup_stock - 1
 ```
 
 **库存回滚**（取消订单或超时）：
 ```
 订单取消或30分钟未支付
   ↓
-查询booking记录对应的session_id和booking_date
+查询booking记录对应的daily_session_id和booking_date
   ↓
 daily_sessions.available_seats = available_seats + 预订座位数
 如果包含化妆/摄影服务，对应库存也回滚
@@ -247,8 +244,7 @@ daily_sessions.available_seats = available_seats + 预订座位数
 **关联关系**：
 - 多对一关联`users`（多个预订属于一个用户）
 - 多对一关联`themes`（多个预订属于一个主题）
-- 多对一关联`sessions`（多个预订属于一个场次模板）
-- 一对多关联`daily_sessions`（通过session_id和booking_date关联）
+- 多对一关联`daily_sessions`（多个预订属于一个每日场次实例）
 - 一对多关联`booking_seats`（一个预订多个座位）
 - 一对多关联`orders`（一个预订对应多个订单，考虑分次支付场景）
 

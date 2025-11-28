@@ -15,8 +15,8 @@ public class Seat {
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    @TableField("session_id")
-    private Long sessionId;
+    @TableField("session_template_id")
+    private Long sessionTemplateId;
 
     @TableField("seat_id")
     private String seatId;
