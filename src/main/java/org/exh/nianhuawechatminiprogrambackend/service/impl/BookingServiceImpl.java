@@ -1,28 +1,31 @@
 package org.exh.nianhuawechatminiprogrambackend.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.exh.nianhuawechatminiprogrambackend.dto.request.CreateBookingRequest;
-import org.exh.nianhuawechatminiprogrambackend.dto.response.CreateBookingResponse;
 import org.exh.nianhuawechatminiprogrambackend.dto.request.SelectedGood;
+import org.exh.nianhuawechatminiprogrambackend.dto.request.SelectedSeat;
+import org.exh.nianhuawechatminiprogrambackend.dto.response.CreateBookingResponse;
 import org.exh.nianhuawechatminiprogrambackend.entity.*;
 import org.exh.nianhuawechatminiprogrambackend.enums.ResultCode;
 import org.exh.nianhuawechatminiprogrambackend.exception.BusinessException;
 import org.exh.nianhuawechatminiprogrambackend.mapper.*;
 import org.exh.nianhuawechatminiprogrambackend.service.BookingService;
+import org.exh.nianhuawechatminiprogrambackend.util.SeatLockManager;
+import org.exh.nianhuawechatminiprogrambackend.util.SnowflakeIdWorker;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.DigestUtils;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 /**
- * 预订服务实现类 - 支持高并发抢座
+ * 预订服务实现类
  */
 @Slf4j
 @Service
@@ -35,6 +38,12 @@ public class BookingServiceImpl implements BookingService {
     private DailySessionMapper dailySessionMapper;
 
     @Autowired
+    private GoodsMapper goodsMapper;
+
+    @Autowired
+    private SeatMapper seatMapper;
+
+    @Autowired
     private BookingMapper bookingMapper;
 
     @Autowired
@@ -44,436 +53,413 @@ public class BookingServiceImpl implements BookingService {
     private BookingGoodsMapper bookingGoodsMapper;
 
     @Autowired
-    private GoodsMapper goodsMapper;
-
-    @Autowired
-    private SeatMapper seatMapper;
-
-    @Autowired
     private ObjectMapper objectMapper;
 
-    // 预订状态常量
-    private static final int STATUS_PENDING = 0;    // 待支付
-    private static final int STATUS_PAID = 1;       // 已支付
-    private static final int STATUS_CANCELLED = 2;  // 已取消
-    private static final int STATUS_COMPLETED = 3;  // 已完成
+    @Autowired
+    private SeatLockManager seatLockManager;
 
-    // 支付过期时间（15分钟）
-    private static final int PAYMENT_EXPIRE_MINUTES = 15;
+    @Autowired
+    private SnowflakeIdWorker snowflakeIdWorker;
 
-    // 座位消耗区域常量
     private static final String AREA_FRONT = "front";
     private static final String AREA_MIDDLE = "middle";
     private static final String AREA_BACK = "back";
 
-    // 商品分类常量
-    private static final String CATEGORY_MAKEUP = "makeup";
-    private static final String CATEGORY_PHOTOGRAPHY = "photos";
-
     @Override
     @Transactional(rollbackFor = Exception.class)
     public CreateBookingResponse createBooking(CreateBookingRequest request) {
-        log.info("开始创建预订，sessionType={}, date={}, seatCount={}, goodCount={}",
-                request.getSessionType(), request.getDate(),
-                request.getSelectedSeatList().size(),
-                request.getSelectedGoodList().size());
-
-        long startTime = System.currentTimeMillis();
+        log.info("创建预订开始，userId={}, sessionType={}, date={}, goodsCount={}, seatCount={}",
+                request.getUserId(), request.getSessionType(), request.getDate(),
+                request.getSelectedGoodList().size(), request.getSelectedSeatList().size());
 
         try {
-            // 1. 参数校验和预处理
-            LocalDateTime bookingDateTime = validateAndPreprocessRequest(request);
+            // 1. 参数验证
+            validateRequest(request);
 
-            // 2. 获取核心数据
+            // 2. 解析日期
+            LocalDate bookingDate = LocalDate.parse(request.getDate());
+
+            // 3. 查询场次模板
             Session session = getSessionByType(request.getSessionType());
-            DailySession dailySession = getDailySession(session.getId(), bookingDateTime.toLocalDate());
-            Map<Long, Goods> goodsMap = getGoodsMap(request.getSelectedGoodList());
+            if (session == null) {
+                log.error("场次不存在，sessionType={}", request.getSessionType());
+                throw new BusinessException(ResultCode.SESSION_NOT_FOUND, "场次不存在");
+            }
 
-            // 3. 高并发座位竞争检查和锁定
-            Map<Long, Seat> seatMap = lockSeatsWithConcurrency(request, session.getId(), bookingDateTime.toLocalDate());
+            // 4. 查询每日场次
+            DailySession dailySession = dailySessionMapper.selectBySessionIdAndDate(
+                    session.getId(), bookingDate
+            );
+            if (dailySession == null) {
+                log.error("该日期场次不存在，sessionId={}, date={}", session.getId(), bookingDate);
+                throw new BusinessException(ResultCode.SESSION_NOT_FOUND, "该日期场次不存在");
+            }
 
-            // 4. 高并发库存检查和扣减
-            validateAndConsumeInventory(dailySession, request.getSelectedGoodList(), goodsMap);
+            // 5. 获取商品信息
+            List<Long> goodsIds = request.getSelectedGoodList().stream()
+                    .map(SelectedGood::getGoodId)
+                    .collect(Collectors.toList());
+            List<Goods> goodsList = goodsMapper.selectBatchIds(goodsIds);
+            if (goodsList.isEmpty()) {
+                log.error("未找到任何商品");
+                throw new BusinessException(ResultCode.NOT_FOUND, "商品不存在");
+            }
 
-            // 5. 创建预订记录
-            Booking booking = createBookingRecord(request, session, dailySession, goodsMap);
+            // 6. 获取选中的座位信息
+            List<Long> seatIds = request.getSelectedSeatList().stream()
+                    .map(seat -> Long.valueOf(seat.getSeatId()))
+                    .collect(Collectors.toList());
+            List<Seat> selectedSeats = seatMapper.selectBatchIds(seatIds);
+            if (selectedSeats.isEmpty()) {
+                log.error("未找到任何座位");
+                throw new BusinessException(ResultCode.NOT_FOUND, "座位不存在");
+            }
 
-            // 6. 创建预订座位记录
-            createBookingSeatRecords(booking.getId(), request.getSelectedSeatList(), seatMap);
+            // 7. 区域匹配验证（关键步骤）
+            validateAreaMatch(request.getSelectedGoodList(), goodsList, selectedSeats);
 
-            // 7. 创建预订商品记录
-            createBookingGoodsRecords(booking.getId(), request.getSelectedGoodList(), goodsMap);
+            // 8. 并发锁定座位（核心并发控制）
+            List<String> lockedSeats = lockSeats(session.getId(), request.getSelectedSeatList(), request.getUserId());
 
-            // 8. 构建响应
-            CreateBookingResponse response = buildResponse(booking);
+            // 9. 校验库存充足（防止超卖）
+            validateInventory(dailySession, request.getSelectedGoodList(), goodsList);
 
-            long duration = System.currentTimeMillis() - startTime;
-            log.info("预订创建成功，bookingId={}, orderNo={}, 耗时={}ms",
-                    booking.getId(), booking.getOrderNo(), duration);
+            // 10. 生成订单号
+            String orderNo = String.valueOf(snowflakeIdWorker.nextId());
 
+            // 11. 计算总金额
+            Long totalAmount = calculateTotalAmount(request.getSelectedGoodList(), goodsList);
+
+            // 12. 创建预订记录
+            Booking booking = new Booking();
+            booking.setUserId(request.getUserId());
+            booking.setThemeId(session.getThemeId());
+            booking.setDailySessionId(dailySession.getId());
+            booking.setOrderNo(orderNo);
+            booking.setTotalAmount(totalAmount);
+            booking.setSeatCount(request.getSelectedSeatList().size());
+            booking.setBookingDate(bookingDate);
+            booking.setStatus(0); // 0-待支付
+
+            bookingMapper.insert(booking);
+            log.info("创建预订记录成功，bookingId={}", booking.getId());
+
+            // 13. 创建预订座位关联
+            createBookingSeats(booking.getId(), request.getSelectedSeatList(), selectedSeats);
+
+            // 14. 创建预订商品关联
+            createBookingGoods(booking.getId(), request.getSelectedGoodList(), goodsList);
+
+            // 15. 扣减库存（使用乐观锁防止超卖）
+            reduceInventory(dailySession, request.getSelectedGoodList(), goodsList);
+
+            // 16. 构建响应
+            CreateBookingResponse response = new CreateBookingResponse();
+            response.setBookingId(String.valueOf(booking.getId()));
+            response.setAmount(totalAmount);
+            response.setPaymentStatus("UNPAID");
+            response.setExpireTime(LocalDateTime.now().plusMinutes(10).toString());
+
+            log.info("创建预订成功，bookingId={}, amount={}", booking.getId(), totalAmount);
             return response;
 
-        } catch (BusinessException e) {
-            log.error("预订创建失败，业务异常：{}", e.getMessage());
-            throw e;
         } catch (Exception e) {
-            log.error("预订创建失败，系统异常", e);
-            throw new BusinessException(ResultCode.ERROR, "预订创建失败：" + e.getMessage());
+            log.error("创建预订失败，userId={}", request.getUserId(), e);
+            throw e;
         }
     }
 
-    /**
-     * 参数校验和预处理
-     */
-    private LocalDateTime validateAndPreprocessRequest(CreateBookingRequest request) {
-        // 验证日期格式
-        if (request.getDate() == null || request.getDate().isEmpty()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "日期不能为空");
-        }
-
-        LocalDateTime bookingDateTime;
-        try {
-            bookingDateTime = java.time.LocalDate.parse(request.getDate())
-                    .atStartOfDay();
-        } catch (Exception e) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "日期格式错误");
-        }
-
-        // 验证场次类型
+    private void validateRequest(CreateBookingRequest request) {
         if (request.getSessionType() == null || request.getSessionType().isEmpty()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "场次类型不能为空");
         }
-
-        // 验证座位列表
-        if (request.getSelectedSeatList() == null || request.getSelectedSeatList().isEmpty()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "座位列表不能为空");
+        if (request.getDate() == null || request.getDate().isEmpty()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "日期不能为空");
         }
-
-        // 验证商品列表
+        if (request.getUserId() == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "用户ID不能为空");
+        }
         if (request.getSelectedGoodList() == null || request.getSelectedGoodList().isEmpty()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "商品列表不能为空");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "至少选择一个商品");
         }
-
-        // 座位去重检查
-        Set<String> seatIds = new HashSet<>();
-        for (var selectedSeat : request.getSelectedSeatList()) {
-            if (!seatIds.add(selectedSeat.getSeatId())) {
-                throw new BusinessException(ResultCode.BOOKING_CONFLICT, "座位ID重复：" + selectedSeat.getSeatId());
-            }
+        if (request.getSelectedSeatList() == null || request.getSelectedSeatList().isEmpty()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "至少选择一个座位");
         }
-
-        return bookingDateTime;
     }
 
-    /**
-     * 根据sessionType查询场次模板
-     */
     private Session getSessionByType(String sessionType) {
-        Session session = sessionMapper.selectOne(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Session>()
+        return sessionMapper.selectOne(
+                new LambdaQueryWrapper<Session>()
                         .eq(Session::getSessionType, sessionType)
                         .eq(Session::getStatus, 1)
                         .eq(Session::getIsDeleted, 0)
         );
-
-        if (session == null) {
-            throw new BusinessException(ResultCode.SESSION_NOT_FOUND, "场次不存在：" + sessionType);
-        }
-
-        return session;
     }
 
-    /**
-     * 查询每日场次
-     */
-    private DailySession getDailySession(Long sessionId, java.time.LocalDate date) {
-        DailySession dailySession = dailySessionMapper.selectBySessionIdAndDate(sessionId, date);
-        if (dailySession == null) {
-            throw new BusinessException(ResultCode.SESSION_NOT_FOUND, "该日期场次不存在");
-        }
-        return dailySession;
-    }
+    private void validateAreaMatch(List<SelectedGood> selectedGoods, List<Goods> goodsList,
+                                   List<Seat> selectedSeats) {
+        // 计算各区域需要的座位数
+        Map<String, Integer> requiredSeats = new HashMap<>();
+        requiredSeats.put(AREA_FRONT, 0);
+        requiredSeats.put(AREA_MIDDLE, 0);
+        requiredSeats.put(AREA_BACK, 0);
 
-    /**
-     * 获取商品Map
-     */
-    private Map<Long, Goods> getGoodsMap(List<SelectedGood> selectedGoods) {
-        List<Long> goodsIds = selectedGoods.stream()
-                .map(SelectedGood::getGoodId)
-                .collect(java.util.stream.Collectors.toList());
+        Map<Long, Goods> goodsMap = goodsList.stream()
+                .collect(Collectors.toMap(Goods::getId, g -> g));
 
-        List<Goods> goodsList = goodsMapper.selectBatchIds(goodsIds);
-        if (goodsList.isEmpty()) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "商品不存在");
-        }
-
-        return goodsList.stream()
-                .collect(java.util.stream.Collectors.toMap(Goods::getId, g -> g));
-    }
-
-    /**
-     * 高并发座位竞争检查和锁定
-     * 使用悲观锁通过数据库行锁防止超卖
-     */
-    private Map<Long, Seat> lockSeatsWithConcurrency(CreateBookingRequest request, Long sessionId, java.time.LocalDate date) {
-        // 提取座位ID列表
-        List<String> seatIds = request.getSelectedSeatList().stream()
-                .map(CreateBookingRequest.SelectedSeatForBooking::getSeatId)
-                .collect(java.util.stream.Collectors.toList());
-
-        // 检查座位是否已被预订（使用行锁防止并发）
-        int bookedCount = bookingMapper.countBookedSeats(sessionId, date, seatIds);
-        if (bookedCount > 0) {
-            // 查找具体被占用的座位
-            List<Seat> bookedSeats = seatMapper.selectList(
-                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Seat>()
-                            .in(Seat::getId, seatIds)
-                            .eq(Seat::getStatus, 1) // 1表示已锁定或已预订
-            );
-
-            String bookedSeatNames = bookedSeats.stream()
-                    .map(Seat::getSeatName)
-                    .collect(java.util.stream.Collectors.joining("、"));
-
-            log.warn("座位已被预订，bookedCount={}, seats={}", bookedCount, bookedSeatNames);
-            throw new BusinessException(ResultCode.SEAT_ALREADY_LOCKED, "座位已被预订：" + bookedSeatNames);
-        }
-
-        // 检查座位可用性（不用FOR UPDATE，让数据库在事务中自动锁定）
-        List<Seat> seatsAvailable = seatMapper.selectList(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Seat>()
-                        .in(Seat::getId, seatIds)
-                        .eq(Seat::getSessionTemplateId, sessionId)
-                        .eq(Seat::getStatus, 0) // 0表示可用
-        );
-
-        if (seatsAvailable.size() != seatIds.size()) {
-            // 有座位不可用
-            throw new BusinessException(ResultCode.SEAT_ALREADY_LOCKED, "部分座位不可用，请重新选择");
-        }
-
-        // 在事务中座位会自动被锁定，不需要单独更新状态
-
-        log.info("检查座位可用性，数量：{}", seatsAvailable.size());
-        return seatsAvailable.stream()
-                .collect(java.util.stream.Collectors.toMap(Seat::getId, s -> s));
-    }
-
-    /**
-     * 高并发库存检查和扣减
-     */
-    private void validateAndConsumeInventory(DailySession dailySession, List<SelectedGood> selectedGoods, Map<Long, Goods> goodsMap) {
-        int makeupNeeded = 0;
-        int photographyNeeded = 0;
-        Map<String, AtomicInteger> seatConsumption = new HashMap<>();
-        seatConsumption.put(AREA_FRONT, new AtomicInteger(0));
-        seatConsumption.put(AREA_MIDDLE, new AtomicInteger(0));
-        seatConsumption.put(AREA_BACK, new AtomicInteger(0));
-
-        // 计算总消耗量
-        for (SelectedGood selectedGood : selectedGoods) {
-            Goods goods = goodsMap.get(selectedGood.getGoodId());
-            int quantity = selectedGood.getSelectedCount();
-
-            // 化妆和摄影消耗
-            if (CATEGORY_MAKEUP.equals(goods.getCategory())) {
-                makeupNeeded += quantity;
-            } else if (CATEGORY_PHOTOGRAPHY.equals(goods.getCategory())) {
-                photographyNeeded += quantity;
+        for (SelectedGood good : selectedGoods) {
+            Goods goods = goodsMap.get(good.getGoodId());
+            if (goods == null || goods.getSeatConsumptionConfig() == null) {
+                continue;
             }
 
-            // 座位消耗计算
-            if (goods.getSeatConsumptionConfig() != null && !goods.getSeatConsumptionConfig().isEmpty()) {
-                try {
-                    List<SeatConsumptionConfig> configs = objectMapper.readValue(
-                            goods.getSeatConsumptionConfig(),
-                            new TypeReference<List<SeatConsumptionConfig>>() {}
-                    );
+            try {
+                // 解析JSON配置
+                List<AreaConfig> configs = objectMapper.readValue(
+                        goods.getSeatConsumptionConfig(),
+                        new TypeReference<List<AreaConfig>>() {}
+                );
 
-                    for (SeatConsumptionConfig config : configs) {
-                        int consumption = config.getNumber() * quantity;
-                        seatConsumption.computeIfPresent(config.getArea(), (area, current) -> {
-                            current.addAndGet(consumption);
-                        });
+                int quantity = Integer.parseInt(good.getSelectedCount());
+                for (AreaConfig config : configs) {
+                    String area = config.getArea();
+                    int count = config.getNumber() * quantity;
+                    requiredSeats.put(area, requiredSeats.get(area) + count);
+                }
+            } catch (Exception e) {
+                log.error("解析座位消耗配置失败，goodId={}", good.getGoodId(), e);
+                throw new BusinessException(ResultCode.ERROR, "商品配置错误：" + goods.getName());
+            }
+        }
+
+        // 计算各区域实际选择的座位数
+        Map<String, Integer> actualSeats = new HashMap<>();
+        actualSeats.put(AREA_FRONT, 0);
+        actualSeats.put(AREA_MIDDLE, 0);
+        actualSeats.put(AREA_BACK, 0);
+
+        for (Seat seat : selectedSeats) {
+            String area = seat.getSeatType();
+            actualSeats.put(area, actualSeats.get(area) + 1);
+        }
+
+        // 对比验证
+        for (String area : Arrays.asList(AREA_FRONT, AREA_MIDDLE, AREA_BACK)) {
+            int required = requiredSeats.get(area);
+            int actual = actualSeats.get(area);
+            if (required != actual) {
+                log.error("区域{}座位数量不匹配，需要{}个，实际选择{}个", area, required, actual);
+                throw new BusinessException(ResultCode.BAD_REQUEST,
+                        String.format("区域%s座位数量不匹配，需要%d个，实际选择%d个", area, required, actual));
+            }
+        }
+
+        log.info("区域匹配验证通过");
+    }
+
+    private List<String> lockSeats(Long sessionId, List<SelectedSeat> selectedSeats, Long userId) {
+        List<String> lockedSeats = new ArrayList<>();
+        try {
+            for (SelectedSeat seat : selectedSeats) {
+                String seatId = seat.getSeatId();
+                boolean locked = seatLockManager.tryLockSeat(sessionId, seatId, userId);
+                if (!locked) {
+                    log.error("座位锁定失败，seatId={}", seatId);
+                    releaseLockedSeats(lockedSeats, sessionId);
+                    throw new BusinessException(ResultCode.SEAT_ALREADY_LOCKED, "座位已被锁定");
+                }
+                lockedSeats.add(seatId);
+            }
+            log.info("座位锁定成功，共锁定{}个座位", lockedSeats.size());
+            return lockedSeats;
+        } catch (Exception e) {
+            releaseLockedSeats(lockedSeats, sessionId);
+            throw e;
+        }
+    }
+
+    private void releaseLockedSeats(List<String> lockedSeats, Long sessionId) {
+        for (String seatId : lockedSeats) {
+            seatLockManager.releaseLock(sessionId, seatId);
+        }
+    }
+
+    private void validateInventory(DailySession dailySession,
+                                   List<SelectedGood> selectedGoods,
+                                   List<Goods> goodsList) {
+        // 计算各类库存消耗
+        int makeupConsumption = 0;
+        int photographyConsumption = 0;
+        int totalSeatConsumption = 0;
+
+        Map<Long, Goods> goodsMap = goodsList.stream()
+                .collect(Collectors.toMap(Goods::getId, g -> g));
+
+        for (SelectedGood good : selectedGoods) {
+            Goods goods = goodsMap.get(good.getGoodId());
+            if (goods == null) continue;
+
+            int quantity = Integer.parseInt(good.getSelectedCount());
+            String category = goods.getCategory();
+
+            if ("makeup".equals(category)) {
+                makeupConsumption += quantity;
+            } else if ("photos".equals(category)) {
+                photographyConsumption += quantity;
+            }
+
+            // 计算座位消耗
+            if (goods.getSeatConsumptionConfig() != null) {
+                try {
+                    List<AreaConfig> configs = objectMapper.readValue(
+                            goods.getSeatConsumptionConfig(),
+                            new TypeReference<List<AreaConfig>>() {}
+                    );
+                    for (AreaConfig config : configs) {
+                        totalSeatConsumption += config.getNumber() * quantity;
                     }
                 } catch (Exception e) {
-                    log.error("解析座位消耗配置失败，goodId={}, config={}",
-                            goods.getId(), goods.getSeatConsumptionConfig(), e);
-                    throw new BusinessException(ResultCode.ERROR, "商品配置错误：" + goods.getName());
+                    log.error("解析座位消耗配置失败", e);
                 }
             }
         }
 
-        log.info("库存消耗计算：front={}, middle={}, back={}, makeup={}, photography={}",
-                seatConsumption.get(AREA_FRONT).get(),
-                seatConsumption.get(AREA_MIDDLE).get(),
-                seatConsumption.get(AREA_BACK).get(),
-                makeupNeeded, photographyNeeded);
-
-        // 原子性库存检查（使用乐观锁更新库存）
-        checkAndConsumeSeatsInventory(dailySession, seatConsumption);
-        checkAndConsumeMakeupInventory(dailySession, makeupNeeded);
-        checkAndConsumePhotographyInventory(dailySession, photographyNeeded);
-
-        // 更新每日场次库存
-        dailySessionMapper.updateById(dailySession);
-    }
-
-    /**
-     * 检查并扣减座位库存
-     */
-    private void checkAndConsumeSeatsInventory(DailySession dailySession, Map<String, AtomicInteger> seatConsumption) {
-        int totalConsumption = seatConsumption.values().stream()
-                .mapToInt(AtomicInteger::get)
-                .sum();
-
-        if (totalConsumption > dailySession.getAvailableSeats()) {
-            throw new BusinessException(ResultCode.INVENTORY_INSUFFICIENT,
-                    String.format("座位库存不足，剩余：%d个，需要：%d个",
-                            dailySession.getAvailableSeats(), totalConsumption));
+        // 验证库存
+        if (makeupConsumption > 0 && dailySession.getMakeupStock() < makeupConsumption) {
+            log.error("化妆库存不足，剩余：{}，需要：{}", dailySession.getMakeupStock(), makeupConsumption);
+            throw new BusinessException(ResultCode.INVENTORY_INSUFFICIENT, "化妆库存不足");
         }
 
-        // 扣减库存
-        dailySession.setAvailableSeats(dailySession.getAvailableSeats() - totalConsumption);
-    }
-
-    /**
-     * 检查并扣减化妆库存
-     */
-    private void checkAndConsumeMakeupInventory(DailySession dailySession, int makeupNeeded) {
-        if (makeupNeeded > dailySession.getMakeupStock()) {
-            throw new BusinessException(ResultCode.INVENTORY_INSUFFICIENT,
-                    String.format("化妆库存不足，剩余：%d个，需要：%d个",
-                            dailySession.getMakeupStock(), makeupNeeded));
+        if (photographyConsumption > 0 && dailySession.getPhotographyStock() < photographyConsumption) {
+            log.error("摄影库存不足，剩余：{}，需要：{}", dailySession.getPhotographyStock(), photographyConsumption);
+            throw new BusinessException(ResultCode.INVENTORY_INSUFFICIENT, "摄影库存不足");
         }
-        dailySession.setMakeupStock(dailySession.getMakeupStock() - makeupNeeded);
-    }
 
-    /**
-     * 检查并扣减摄影库存
-     */
-    private void checkAndConsumePhotographyInventory(DailySession dailySession, int photographyNeeded) {
-        if (photographyNeeded > dailySession.getPhotographyStock()) {
-            throw new BusinessException(ResultCode.INVENTORY_INSUFFICIENT,
-                    String.format("摄影库存不足，剩余：%d个，需要：%d个",
-                            dailySession.getPhotographyStock(), photographyNeeded));
+        if (totalSeatConsumption > 0 && dailySession.getAvailableSeats() < totalSeatConsumption) {
+            log.error("座位库存不足，剩余：{}，需要：{}", dailySession.getAvailableSeats(), totalSeatConsumption);
+            throw new BusinessException(ResultCode.INVENTORY_INSUFFICIENT, "座位库存不足");
         }
-        dailySession.setPhotographyStock(dailySession.getPhotographyStock() - photographyNeeded);
+
+        log.info("库存验证通过");
     }
 
-    /**
-     * 创建预订记录
-     */
-    private Booking createBookingRecord(CreateBookingRequest request, Session session, DailySession dailySession, Map<Long, Goods> goodsMap) {
-        // 生成订单号
-        String orderNo = generateOrderNo();
+    private Long calculateTotalAmount(List<SelectedGood> selectedGoods, List<Goods> goodsList) {
+        long totalAmount = 0L;
+        Map<Long, Goods> goodsMap = goodsList.stream()
+                .collect(Collectors.toMap(Goods::getId, g -> g));
 
-        // 计算总金额
-        long totalAmount = calculateTotalAmount(request.getSelectedGoodList(), goodsMap);
+        for (SelectedGood good : selectedGoods) {
+            Goods goods = goodsMap.get(good.getGoodId());
+            if (goods != null) {
+                int quantity = Integer.parseInt(good.getSelectedCount());
+                totalAmount += goods.getPrice() * quantity;
+            }
+        }
 
-        Booking booking = new Booking();
-        booking.setUserId(request.getUserId());
-        booking.setThemeId(session.getThemeId());
-        booking.setDailySessionId(dailySession.getId());
-        booking.setOrderNo(orderNo);
-        booking.setTotalAmount(totalAmount);
-        booking.setSeatCount(request.getSelectedSeatList().size());
-        booking.setBookingDate(dailySession.getDate());
-        booking.setStatus(STATUS_PENDING); // 待支付
-
-        bookingMapper.insert(booking);
-
-        log.info("创建预订记录成功，bookingId={}, orderNo={}, totalAmount={}",
-                booking.getId(), orderNo, totalAmount);
-
-        return booking;
+        return totalAmount;
     }
 
-    /**
-     * 创建预订座位记录
-     */
-    private void createBookingSeatRecords(Long bookingId, List<CreateBookingRequest.SelectedSeatForBooking> selectedSeats) {
-        List<BookingSeat> bookingSeats = new ArrayList<>();
+    private void createBookingSeats(Long bookingId, List<SelectedSeat> selectedSeats, List<Seat> seatList) {
+        Map<Long, Seat> seatMap = seatList.stream()
+                .collect(Collectors.toMap(Seat::getId, s -> s));
 
-        for (CreateBookingRequest.SelectedSeatForBooking selectedSeat : selectedSeats) {
+        for (SelectedSeat selectedSeat : selectedSeats) {
+            Long seatId = Long.valueOf(selectedSeat.getSeatId());
+            Seat seat = seatMap.get(seatId);
+
             BookingSeat bookingSeat = new BookingSeat();
             bookingSeat.setBookingId(bookingId);
-            bookingSeat.setSeatId(Long.valueOf(selectedSeat.getSeatId()));
+            bookingSeat.setSeatId(seatId);
             bookingSeat.setSeatName(selectedSeat.getSeatName());
-            bookingSeat.setPrice(0L); // 座位价格可以后续从其他接口获取
+            bookingSeat.setPrice(seat != null ? seat.getPrice() : 0L);
 
-            bookingSeats.add(bookingSeat);
+            bookingSeatMapper.insert(bookingSeat);
         }
 
-        bookingSeatMapper.insertBatchSomeColumn(bookingSeats);
-        log.info("创建预订座位记录成功，数量：{}", bookingSeats.size());
+        log.info("创建预订座位关联成功，共{}个", selectedSeats.size());
     }
 
-    /**
-     * 创建预订商品记录
-     */
-    private void createBookingGoodsRecords(Long bookingId, List<SelectedGood> selectedGoods, Map<Long, Goods> goodsMap) {
-        List<BookingGoods> bookingGoodsList = new ArrayList<>();
+    private void createBookingGoods(Long bookingId, List<SelectedGood> selectedGoods, List<Goods> goodsList) {
+        Map<Long, Goods> goodsMap = goodsList.stream()
+                .collect(Collectors.toMap(Goods::getId, g -> g));
 
         for (SelectedGood selectedGood : selectedGoods) {
             Goods goods = goodsMap.get(selectedGood.getGoodId());
+
             BookingGoods bookingGoods = new BookingGoods();
             bookingGoods.setBookingId(bookingId);
             bookingGoods.setGoodsId(selectedGood.getGoodId());
-            bookingGoods.setQuantity(selectedGood.getSelectedCount());
-            bookingGoods.setPrice(goods.getPrice() * selectedGood.getSelectedCount());
+            bookingGoods.setQuantity(Integer.parseInt(selectedGood.getSelectedCount()));
+            bookingGoods.setPrice(goods != null ? goods.getPrice() : 0L);
 
-            bookingGoodsList.add(bookingGoods);
+            bookingGoodsMapper.insert(bookingGoods);
         }
 
-        for (BookingGoods bg : bookingGoodsList) {
-            bookingGoodsMapper.insert(bg);
+        log.info("创建预订商品关联成功，共{}个", selectedGoods.size());
+    }
+
+    private void reduceInventory(DailySession dailySession,
+                                 List<SelectedGood> selectedGoods,
+                                 List<Goods> goodsList) {
+        // 使用乐观锁扣减库存
+        DailySession updateSession = new DailySession();
+        updateSession.setId(dailySession.getId());
+
+        int totalSeatConsumption = 0;
+        int makeupConsumption = 0;
+        int photographyConsumption = 0;
+
+        Map<Long, Goods> goodsMap = goodsList.stream()
+                .collect(Collectors.toMap(Goods::getId, g -> g));
+
+        for (SelectedGood good : selectedGoods) {
+            Goods goods = goodsMap.get(good.getGoodId());
+            if (goods == null) continue;
+
+            int quantity = Integer.parseInt(good.getSelectedCount());
+            String category = goods.getCategory();
+
+            if ("makeup".equals(category)) {
+                makeupConsumption += quantity;
+            } else if ("photos".equals(category)) {
+                photographyConsumption += quantity;
+            }
+
+            // 计算座位消耗
+            if (goods.getSeatConsumptionConfig() != null) {
+                try {
+                    List<AreaConfig> configs = objectMapper.readValue(
+                            goods.getSeatConsumptionConfig(),
+                            new TypeReference<List<AreaConfig>>() {}
+                    );
+                    for (AreaConfig config : configs) {
+                        totalSeatConsumption += config.getNumber() * quantity;
+                    }
+                } catch (Exception e) {
+                    log.error("解析座位消耗配置失败", e);
+                }
+            }
         }
-        log.info("创建预订商品记录成功，数量：{}", bookingGoodsList.size());
+
+        // 扣减库存
+        updateSession.setAvailableSeats(dailySession.getAvailableSeats() - totalSeatConsumption);
+        updateSession.setMakeupStock(dailySession.getMakeupStock() - makeupConsumption);
+        updateSession.setPhotographyStock(dailySession.getPhotographyStock() - photographyConsumption);
+
+        int rows = dailySessionMapper.updateById(updateSession);
+        if (rows == 0) {
+            log.error("库存扣减失败，可能已被其他事务修改");
+            throw new BusinessException(ResultCode.INVENTORY_INSUFFICIENT, "库存不足");
+        }
+
+        log.info("库存扣减成功，座位：{}，化妆：{}，摄影：{}",
+                totalSeatConsumption, makeupConsumption, photographyConsumption);
     }
 
     /**
-     * 计算总金额
+     * 区域配置POJO
      */
-    private long calculateTotalAmount(List<SelectedGood> selectedGoods, Map<Long, Goods> goodsMap) {
-        return selectedGoods.stream()
-                .mapToLong(selectedGood -> {
-                    Goods goods = goodsMap.get(selectedGood.getGoodId());
-                    return goods.getPrice() * selectedGood.getSelectedCount();
-                })
-                .sum();
-    }
-
-    /**
-     * 生成订单号
-     */
-    private String generateOrderNo() {
-        String timestamp = String.valueOf(System.currentTimeMillis());
-        String random = String.valueOf(new Random().nextInt(1000));
-        String data = timestamp + random;
-        return DigestUtils.md5DigestAsHex(data).substring(0, 16).toUpperCase();
-    }
-
-    /**
-     * 构建响应
-     */
-    private CreateBookingResponse buildResponse(Booking booking) {
-        LocalDateTime expireTime = LocalDateTime.now().plusMinutes(PAYMENT_EXPIRE_MINUTES);
-        String expireTimeStr = expireTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-
-        CreateBookingResponse response = new CreateBookingResponse();
-        response.setOrderId(booking.getOrderNo());
-        response.setAmount(booking.getTotalAmount());
-        response.setPaymentStatus("pending"); // 待支付
-        response.setExpireTime(expireTimeStr);
-
-        return response;
-    }
-
-    /**
-     * 座位消耗配置POJO
-     */
-    private static class SeatConsumptionConfig {
+    private static class AreaConfig {
         private String area;
         private int number;
 

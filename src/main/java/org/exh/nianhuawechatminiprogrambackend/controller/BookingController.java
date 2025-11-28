@@ -83,19 +83,16 @@ public class BookingController {
         return Result.success(response);
     }
 
-    @ApiOperation(value = "创建预订", notes = "用户选择座位和商品，创建预订记录（支持高并发抢座）")
+    @ApiOperation(value = "创建预订", notes = "创建预订记录，锁定座位10分钟，返回预订ID、金额、支付状态和过期时间")
     @PostMapping("/createOrder")
-    public Result<CreateBookingResponse> createOrder(@RequestBody @Valid CreateBookingRequest request) {
-        log.info("创建预订请求，sessionType={}, date={}, seatCount={}, goodCount={}",
-                request.getSessionType(), request.getDate(),
-                request.getSelectedSeatList().size(),
-                request.getSelectedGoodList().size());
+    public Result<CreateBookingResponse> createBooking(@RequestBody @Valid CreateBookingRequest request) {
+        log.info("创建预订请求，userId={}, sessionType={}, date={}, goodsCount={}, seatCount={}",
+                request.getUserId(), request.getSessionType(), request.getDate(),
+                request.getSelectedGoodList().size(), request.getSelectedSeatList().size());
 
         CreateBookingResponse response = bookingService.createBooking(request);
 
-        log.info("创建预订成功，orderId={}, amount={}, expireTime={}",
-                response.getOrderId(), response.getAmount(), response.getExpireTime());
-
+        log.info("创建预订成功，bookingId={}, amount={}", response.getBookingId(), response.getAmount());
         return Result.success(response);
     }
 }

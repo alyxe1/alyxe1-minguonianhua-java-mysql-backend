@@ -19,22 +19,23 @@ public class CreateBookingResponse {
      * 预订ID
      */
     @NotBlank(message = "预订ID不能为空")
-    private String orderId;
+    private String bookingId;
 
     /**
-     * 订单金额（分）
+     * 总金额（分）
      */
     @NotNull(message = "金额不能为空")
     private Long amount;
 
     /**
-     * 支付状态：pending-待支付, paid-已支付, failed-支付失败
+     * 支付状态
      */
     @NotBlank(message = "支付状态不能为空")
     private String paymentStatus;
 
     /**
-     * 支付过期时间
+     * 过期时间（ISO格式）
      */
+    @NotBlank(message = "过期时间不能为空")
     private String expireTime;
 }
