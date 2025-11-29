@@ -1,0 +1,505 @@
+openapi: 3.0.3
+info:
+  title: 民国年华小程序 - 微信支付模块API文档
+  description: |
+    微信小程序支付模块接口设计
+
+    ## 业务流程说明
+
+    本项目采用"预订先行，订单后置"的架构设计：
+
+    1. **用户选座并创建预订**
+       - 调用 `/api/v1/bookings/createOrder` 创建预订
+       - 系统锁定座位10分钟，生成订单号（order_no）
+       - 此时仅创建预订记录，不创建订单
+
+    2. **用户点击"去支付"**
+       - 调用 `/api/v1/payment/create-order` 创建支付订单
+       - 系统创建订单记录（复用预订时生成的order_no）
+       - 调用微信支付统一下单接口，获取 prepay_id
+       - 生成前端调起支付所需的5个参数
+       - 返回给小程序前端
+
+    3. **小程序前端调起微信支付**
+       - 使用后端返回的5个参数（appId, timeStamp, nonceStr, package, paySign）
+       - 调用 `wx.requestPayment()` 调起微信支付
+       - 用户输入密码完成支付
+
+    4. **支付结果异步通知**
+       - 微信支付成功后，会异步通知 `/api/v1/payment/notify` 接口
+       - 后端验证签名，更新订单状态为已支付
+       - 更新预订状态为已支付
+       - 发送通知给用户
+
+    5. **前端查询支付结果**
+       - 前端轮询或通过回调查询 `/api/v1/payment/status/{orderNo}`
+       - 获取支付状态，跳转相应页面
+
+    ## 金额单位说明
+
+    - **数据库存储**: 使用"分"为单位（Long类型）
+    - **接口响应**: 使用"元"为单位（前端显示）
+    - **微信支付**: 使用"分"为单位（微信要求）
+
+    ## 安全性说明
+
+    - 所有接口需要JWT认证（Bearer Token）
+    - 支付回调接口需要验证微信签名
+    - 敏感数据加密传输
+    - 支付参数签名校验
+
+  version: 1.0.0
+  contact:
+    name: Claude Code
+    email: claude@nianhua.com
+
+servers:
+  - url: https://api.nianhua.com
+    description: 生产环境
+  - url: http://localhost:8080
+    description: 开发环境
+
+security:
+  - BearerAuth: []
+
+paths:
+  /api/v1/payment/create-order:
+    post:
+      summary: 创建支付订单
+      description: |
+        用户点击"去支付"时调用此接口
+
+        业务流程：
+        1. 根据bookingId查询预订记录
+        2. 验证预订状态（必须是待支付状态）
+        3. 创建订单记录（复用预订的order_no）
+        4. 调用微信支付统一下单接口，获取prepay_id
+        5. 生成支付签名（SHA256 with RSA）
+        6. 返回支付参数给前端
+
+        注意：金额单位，微信要求传入"分"，前端显示"元"
+      tags:
+        - 微信支付模块
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentOrderRequest'
+      responses:
+        '200':
+          description: 创建支付订单成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatePaymentOrderResponse'
+        '400':
+          description: 参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 预订不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 预订状态冲突（不是待支付状态）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/payment/notify:
+    post:
+      summary: 微信支付结果回调通知
+      description: |
+        微信支付成功后，微信服务器会异步调用此接口通知支付结果
+
+        接收到的数据是加密的，需要：
+        1. 验证微信签名
+        2. 解密数据
+        3. 验证订单金额与支付金额是否一致
+        4. 更新订单状态为已支付
+        5. 更新预订状态为已支付
+        6. 返回成功响应给微信
+
+        注意：此接口需要直接暴露给公网，微信支付服务器才能访问
+        微信会重试通知，直到收到成功响应（return_code=SUCCESS）
+      tags:
+        - 微信支付模块
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentNotifyRequest'
+      responses:
+        '200':
+          description: 处理成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentNotifyResponse'
+        '500':
+          description: 处理失败（微信会重试）
+
+  /api/v1/payment/status/{orderNo}:
+    get:
+      summary: 查询支付状态
+      description: |
+        前端轮询查询支付状态
+
+        使用场景：
+        - 调起支付后，前端轮询查询支付结果
+        - 用户从支付页面返回后，查询是否支付成功
+        - 支付成功后，获取订单详情
+      tags:
+        - 微信支付模块
+      parameters:
+        - name: orderNo
+          in: path
+          required: true
+          schema:
+            type: string
+            description: 订单号（预订时生成的订单号）
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentStatusResponse'
+        '404':
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/payment/refund:
+    post:
+      summary: 申请退款
+      description: |
+        用户申请退款
+
+        业务流程：
+        1. 验证订单状态（必须是已支付）
+        2. 验证退款金额（不能超过支付金额）
+        3. 创建退款记录
+        4. 调用微信退款接口
+        5. 异步接收退款结果通知
+
+        限制：
+        - 只能对已支付的订单申请退款
+        - 部分退款或全额退款
+        - 退款金额不能超过支付金额
+      tags:
+        - 微信支付模块
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+      responses:
+        '200':
+          description: 退款申请提交成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '400':
+          description: 参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    CreatePaymentOrderRequest:
+      type: object
+      required:
+        - bookingId
+        - openid
+      properties:
+        bookingId:
+          type: string
+          description: 预订ID（从创建预订接口获取）
+        openid:
+          type: string
+          description: 用户的微信openid（小程序通过wx.login获取）
+      example:
+        bookingId: "123456789"
+        openid: "oUpF8uMuAJO_M2pxb1Q9zNjWeS6o"
+
+    CreatePaymentOrderResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          description: 状态码
+          example: 200
+        message:
+          type: string
+          description: 消息
+          example: "创建支付订单成功"
+        data:
+          type: object
+          properties:
+            orderNo:
+              type: string
+              description: 订单号（复用预订的order_no）
+            prepayId:
+              type: string
+              description: 微信预支付交易会话标识
+            appId:
+              type: string
+              description: 小程序AppID
+            timeStamp:
+              type: string
+              description: 时间戳，从1970年1月1日00:00:00至今的秒数
+            nonceStr:
+              type: string
+              description: 随机字符串，不长于32位
+            package:
+              type: string
+              description: 订单详情扩展字符串，格式：prepay_id=xxx
+            signType:
+              type: string
+              description: 签名类型，固定为RSA
+              example: "RSA"
+            paySign:
+              type: string
+              description: 签名，使用商户API私钥签名
+            amount:
+              type: number
+              description: 支付金额（元）
+            expireTime:
+              type: string
+              description: 订单过期时间（ISO 8601格式）
+          required:
+            - orderNo
+            - prepayId
+            - appId
+            - timeStamp
+            - nonceStr
+            - package
+            - signType
+            - paySign
+            - amount
+      example:
+        code: 200
+        message: "创建支付订单成功"
+        data:
+          orderNo: "202511291235001234"
+          prepayId: "wx201410272009395522657a690389285100"
+          appId: "wx8888888888888888"
+          timeStamp: "1554208460"
+          nonceStr: "593BEC0C930BF1AFEB40B4A08C8FB242"
+          package: "prepay_id=wx201410272009395522657a690389285100"
+          signType: "RSA"
+          paySign: "mI35pfNEQV6777ke/1T+LJLQDNTm7yeoUJH+j/adPGhmCCi0PbgkvYQTRcXH0uibcLVtvFLdGLpmoYO9FV6lBBsTAjuhh5YOvQi0e2g3e0yytitiNET9FEuqM0pjnKfRW4K6LIZDdbWJv9KhZUx3DrJa5TL7OJ7VdADVivxVySIlPVKjGwuCXzuXSJes0UcILgWQUMyha5/3nYofuHtS7r+KYyMuxD+oJ9VM1Qdxk4UIG59CP5Y3wtYIFybyF3bdu1caHTRRX+DLyMXyYA/IrTmiW01c4RPjpHBX5Dk1sZyY1zVsWNsvMHr2e1NTWtBxKJ+qk5N61J7caYoepHFaxw=="
+          amount: 99.99
+          expireTime: "2025-12-01T12:45:00+08:00"
+
+    PaymentNotifyRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          description: 通知ID
+        create_time:
+          type: string
+          description: 通知创建时间
+        event_type:
+          type: string
+          description: 通知类型
+          example: "TRANSACTION.SUCCESS"
+        resource_type:
+          type: string
+          description: 资源类型
+        resource:
+          type: object
+          properties:
+            original_type:
+              type: string
+              description: 原始类型
+            algorithm:
+              type: string
+              description: 加密算法
+            ciphertext:
+              type: string
+              description: 密文（需要解密）
+            associated_data:
+              type: string
+              description: 附加数据
+            nonce:
+              type: string
+              description: 随机串
+        summary:
+          type: string
+          description: 回调摘要
+
+    PaymentNotifyResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          description: 返回状态码
+          example: "SUCCESS"
+        message:
+          type: string
+          description: 返回信息
+          example: "OK"
+
+    PaymentStatusResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: "查询成功"
+        data:
+          type: object
+          properties:
+            orderNo:
+              type: string
+              description: 订单号
+            bookingId:
+              type: string
+              description: 预订ID
+            status:
+              type: string
+              description: 支付状态
+              enum: [PENDING, SUCCESS, FAILED, CLOSED, REFUNDING, REFUNDED]
+            amount:
+              type: number
+              description: 支付金额（元）
+            paidTime:
+              type: string
+              description: 支付时间（ISO 8601格式）
+            transactionId:
+              type: string
+              description: 微信支付交易号
+          required:
+            - orderNo
+            - bookingId
+            - status
+            - amount
+      example:
+        code: 200
+        message: "查询成功"
+        data:
+          orderNo: "202511291235001234"
+          bookingId: "123456789"
+          status: "SUCCESS"
+          amount: 99.99
+          paidTime: "2025-12-01T12:30:00+08:00"
+          transactionId: "420000123456789012345678901234567890"
+
+    RefundRequest:
+      type: object
+      required:
+        - orderNo
+        - refundAmount
+        - reason
+      properties:
+        orderNo:
+          type: string
+          description: 订单号
+        refundAmount:
+          type: number
+          description: 退款金额（元），不能超过支付金额
+        reason:
+          type: string
+          description: 退款原因
+          maxLength: 80
+      example:
+        orderNo: "202511291235001234"
+        refundAmount: 99.99
+        reason: "用户行程变更，需要退款"
+
+    RefundResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: "退款申请提交成功"
+        data:
+          type: object
+          properties:
+            refundId:
+              type: string
+              description: 退款ID
+            refundOrderNo:
+              type: string
+              description: 退款订单号
+            refundAmount:
+              type: number
+              description: 退款金额（元）
+            status:
+              type: string
+              description: 退款状态
+              enum: [PROCESSING, SUCCESS, FAILED, CLOSED]
+          required:
+            - refundId
+            - refundOrderNo
+            - refundAmount
+      example:
+        code: 200
+        message: "退款申请提交成功"
+        data:
+          refundId: "REFUND202511291236001234"
+          refundOrderNo: "R202511291236001234"
+          refundAmount: 99.99
+          status: "PROCESSING"
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          description: 错误码
+        message:
+          type: string
+          description: 错误消息
+        data:
+          type: null
+      example:
+        code: 400
+        message: "参数错误"
+        data: null
+
+  examples:
+    PaymentSuccess:
+      summary: 支付成功
+      value:
+        code: 200
+        message: "支付成功"
+        data:
+          orderNo: "202511291235001234"
+          bookingId: "123456789"
+          status: "SUCCESS"
+          amount: 99.99
+          paidTime: "2025-12-01T12:30:00+08:00"
+    PaymentFailed:
+      summary: 支付失败
+      value:
+        code: 1005
+        message: "支付失败"
+        data: null
