@@ -239,3 +239,24 @@ CREATE TABLE IF NOT EXISTS `booking_goods` (
 
 -- 优雅退出提示（5分钟后会关闭当前会话）
 -- 开发员 xxx 中枢系统启动源码
+
+-- 退款记录表
+CREATE TABLE IF NOT EXISTS `refunds` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '退款记录ID',
+    `order_id` BIGINT UNSIGNED NOT NULL COMMENT '订单ID',
+    `order_no` VARCHAR(32) NOT NULL COMMENT '订单号',
+    `refund_no` VARCHAR(32) NOT NULL COMMENT '退款单号',
+    `transaction_id` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '微信支付交易号',
+    `refund_id` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '微信退款单号',
+    `total_amount` BIGINT NOT NULL COMMENT '订单总金额（分）',
+    `refund_amount` BIGINT NOT NULL COMMENT '退款金额（分）',
+    `status` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '退款状态：0-退款中，1-退款成功，2-退款失败，3-退款关闭',
+    `reason` VARCHAR(200) NOT NULL DEFAULT '' COMMENT '退款原因',
+    `notify_result` JSON NULL COMMENT '退款回调结果',
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_refund_no` (`refund_no`),
+    KEY `idx_order_no` (`order_no`),
+    KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='退款记录表';
