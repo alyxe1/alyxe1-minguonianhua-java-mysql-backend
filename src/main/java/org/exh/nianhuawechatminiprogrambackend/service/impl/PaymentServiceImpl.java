@@ -17,10 +17,15 @@ import org.exh.nianhuawechatminiprogrambackend.entity.Order;
 import org.exh.nianhuawechatminiprogrambackend.entity.Refund;
 import org.exh.nianhuawechatminiprogrambackend.enums.ResultCode;
 import org.exh.nianhuawechatminiprogrambackend.exception.BusinessException;
+import org.exh.nianhuawechatminiprogrambackend.entity.VerificationCode;
 import org.exh.nianhuawechatminiprogrambackend.mapper.BookingMapper;
+import org.exh.nianhuawechatminiprogrambackend.mapper.DailySessionMapper;
 import org.exh.nianhuawechatminiprogrambackend.mapper.OrderMapper;
 import org.exh.nianhuawechatminiprogrambackend.mapper.RefundMapper;
+import org.exh.nianhuawechatminiprogrambackend.mapper.SessionMapper;
+import org.exh.nianhuawechatminiprogrambackend.mapper.VerificationCodeMapper;
 import org.exh.nianhuawechatminiprogrambackend.service.PaymentService;
+import org.exh.nianhuawechatminiprogrambackend.util.VerificationCodeUtil;
 import org.exh.nianhuawechatminiprogrambackend.util.WechatPayDecryptUtil;
 import org.exh.nianhuawechatminiprogrambackend.util.WechatPayUtil;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,6 +53,18 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Autowired
     private WxConfig wxConfig;
+
+    @Autowired
+    private VerificationCodeUtil verificationCodeUtil;
+
+    @Autowired
+    private VerificationCodeMapper verificationCodeMapper;
+
+    @Autowired
+    private DailySessionMapper dailySessionMapper;
+
+    @Autowired
+    private SessionMapper sessionMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -158,7 +175,31 @@ public class PaymentServiceImpl implements PaymentService {
             bookingMapper.updateById(booking);
             log.info("更新预订状态成功, bookingId={}, status=已支付", booking.getId());
 
-            // 8. 返回成功响应给微信
+            // 8. 生成核销码和二维码
+            try {
+                // 生成核销码和二维码
+                VerificationCodeUtil.VerificationCodeResult verificationResult = verificationCodeUtil.generateVerificationCodeWithQrCode();
+                log.info("生成核销码成功, code={}, qrCodeUrl={}", verificationResult.getCode(), verificationResult.getQrCodeUrl());
+
+                // 查询场次信息以设置核销码过期时间
+                LocalDateTime expiryTime = calculateVerificationCodeExpiryTime(booking);
+
+                // 保存核销码记录
+                VerificationCode verificationCode = new VerificationCode();
+                verificationCode.setOrderId(order.getId());
+                verificationCode.setCode(verificationResult.getCode());
+                verificationCode.setQrCodeUrl(verificationResult.getQrCodeUrl());
+                verificationCode.setStatus(0); // 0-未使用
+                verificationCode.setExpiryTime(expiryTime);
+                verificationCodeMapper.insert(verificationCode);
+                log.info("保存核销码记录成功, verificationCodeId={}, orderId={}", verificationCode.getId(), order.getId());
+
+            } catch (Exception e) {
+                // 核销码生成失败不阻塞支付流程，记录错误日志即可
+                log.error("生成或保存核销码失败, orderNo={}, bookingId={}", order.getOrderNo(), booking.getId(), e);
+            }
+
+            // 9. 返回成功响应给微信
             log.info("微信支付回调处理成功, orderNo={}", order.getOrderNo());
             return PaymentNotifyResponse.success();
 
@@ -388,5 +429,45 @@ public class PaymentServiceImpl implements PaymentService {
     private String generateRefundNo() {
         // 退款单号格式：R + 年月日时分 + 随机6位
         return "R" + IdUtil.fastSimpleUUID();
+    }
+
+    /**
+     * 计算核销码过期时间
+     * 核销码在场次结束后24小时过期
+     * @param booking 预订信息
+     * @return 核销码过期时间
+     */
+    private LocalDateTime calculateVerificationCodeExpiryTime(Booking booking) {
+        try {
+            // 查询每日场次信息
+            org.exh.nianhuawechatminiprogrambackend.entity.DailySession dailySession =
+                    dailySessionMapper.selectById(booking.getDailySessionId());
+            if (dailySession == null) {
+                log.warn("未找到每日场次信息, dailySessionId={}, 使用默认过期时间(预订日期+1天)", booking.getDailySessionId());
+                return booking.getBookingDate().atTime(23, 59, 59).plusDays(1);
+            }
+
+            // 查询场次模板信息
+            org.exh.nianhuawechatminiprogrambackend.entity.Session session =
+                    sessionMapper.selectById(dailySession.getSessionId());
+            if (session == null) {
+                log.warn("未找到场次模板信息, sessionId={}, 使用默认过期时间(预订日期+1天)", dailySession.getSessionId());
+                return booking.getBookingDate().atTime(23, 59, 59).plusDays(1);
+            }
+
+            // 核销码过期时间 = 场次结束时间 + 24小时
+            LocalDateTime sessionEndTime = booking.getBookingDate().atTime(session.getEndTime());
+            LocalDateTime expiryTime = sessionEndTime.plusHours(24);
+
+            log.info("计算核销码过期时间成功, bookingDate={}, sessionEndTime={}, expiryTime={}",
+                    booking.getBookingDate(), sessionEndTime, expiryTime);
+
+            return expiryTime;
+
+        } catch (Exception e) {
+            log.error("计算核销码过期时间失败, 使用默认过期时间", e);
+            // 默认过期时间：预订日期当天晚上23:59:59 + 1天
+            return booking.getBookingDate().atTime(23, 59, 59).plusDays(1);
+        }
     }
 }

@@ -77,6 +77,13 @@
             <version>5.8.18</version>
         </dependency>
 
+        <!-- ZXing二维码生成（Hutool依赖） -->
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>javase</artifactId>
+            <version>3.5.2</version>
+        </dependency>
+
         <!-- Validation -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
