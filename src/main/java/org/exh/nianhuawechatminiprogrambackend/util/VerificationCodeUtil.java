@@ -9,12 +9,9 @@ import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClientBuilder;
  import com.aliyun.oss.model.PutObjectRequest;
 import lombok.extern.slf4j.Slf4j;
-import lombok.Data;
 import org.exh.nianhuawechatminiprogrambackend.config.OssConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -25,9 +22,9 @@ import java.time.format.DateTimeFormatter;
  * 核销码工具类
  * 用于生成核销码、生成二维码并上传到OSS
  */
+@Slf4j
 @Component
 public class VerificationCodeUtil {
-    private static final Logger log = LoggerFactory.getLogger(VerificationCodeUtil.class);
 
     @Autowired
     private OssConfig ossConfig;
@@ -128,24 +125,9 @@ public class VerificationCodeUtil {
     /**
      * 核销码生成结果
      */
+    @lombok.Data
     public static class VerificationCodeResult {
         private String code;
         private String qrCodeUrl;
-
-        public String getCode() {
-            return code;
-        }
-
-        public void setCode(String code) {
-            this.code = code;
-        }
-
-        public String getQrCodeUrl() {
-            return qrCodeUrl;
-        }
-
-        public void setQrCodeUrl(String qrCodeUrl) {
-            this.qrCodeUrl = qrCodeUrl;
-        }
     }
 }

@@ -40,29 +40,4 @@ public class OssConfig {
      * 文件存储根目录
      */
     private String baseDir = "nianhua";
-
-    // 手动添加getter方法（Lombok配置问题）
-    public String getAccessKeyId() {
-        return accessKeyId;
-    }
-
-    public String getAccessKeySecret() {
-        return accessKeySecret;
-    }
-
-    public String getEndpoint() {
-        return endpoint;
-    }
-
-    public String getBucketDomain() {
-        return bucketDomain;
-    }
-
-    public String getBucketName() {
-        return bucketName;
-    }
-
-    public String getBaseDir() {
-        return baseDir;
-    }
 }
