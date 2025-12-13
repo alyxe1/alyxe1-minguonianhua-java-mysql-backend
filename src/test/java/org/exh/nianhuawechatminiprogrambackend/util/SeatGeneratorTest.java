@@ -17,9 +17,10 @@ import java.util.List;
  * - 为session_id为1和2的两个场次生成测试座位数据
  * - 每个场次生成90个座位
  * - 座位布局：18桌，每桌5人
- * - 前30座位（0-29）：前排，价格30000分（300元）
- * - 中30座位（30-59）：中排，价格20000分（200元）
- * - 后30座位（60-89）：后排，价格10000分（100元）
+ * - 前35座位（0-34）：前排
+ * - 中25座位（35-59）：中排
+ * - 后30座位（60-89）：后排
+ * - 价格：统一设置为0（实际支付价格以goods表为准）
  * - 桌号：A-R 共18个桌
  * - 生成数据：180个座位记录
  *
@@ -49,9 +50,10 @@ public class SeatGeneratorTest {
     };
 
     // 价格（单位：分）
-    private static final long FRONT_PRICE = 30000;  // 前排 300元
-    private static final long MIDDLE_PRICE = 20000; // 中排 200元
-    private static final long BACK_PRICE = 10000;   // 后排 100元
+    // 注意：座位价格统一设置为0，实际支付价格以goods表中的价格为准
+    private static final long FRONT_PRICE = 0;  // 前排价格（由商品决定）
+    private static final long MIDDLE_PRICE = 0; // 中排价格（由商品决定）
+    private static final long BACK_PRICE = 0;   // 后排价格（由商品决定）
 
     // 座位类型
     private static final String FRONT_TYPE = "front";
@@ -126,7 +128,7 @@ public class SeatGeneratorTest {
         seat.setSeatId(tableLetter + seatNumber);
         seat.setSeatName(tableLetter + "桌-" + seatNumber + "号");
 
-        if (seatIndex < 30) {
+        if (seatIndex < 35) {
             seat.setSeatType(FRONT_TYPE);
             seat.setPrice(FRONT_PRICE);
         } else if (seatIndex < 60) {
@@ -168,9 +170,8 @@ public class SeatGeneratorTest {
             log.info("后排座位数: {}", backCount);
         }
 
-        log.info("\n=== 价格 ===");
-        log.info("前排: {}分 ({}元)", FRONT_PRICE, FRONT_PRICE / 100);
-        log.info("中排: {}分 ({}元)", MIDDLE_PRICE, MIDDLE_PRICE / 100);
-        log.info("后排: {}分 ({}元)", BACK_PRICE, BACK_PRICE / 100);
+        log.info("\n=== 价格说明 ===");
+        log.info("座位价格统一设置为：{}分", FRONT_PRICE);
+        log.info("实际支付价格以goods表中的商品价格为准");
     }
 }

@@ -145,7 +145,8 @@
                 <configuration>
                     <mainClass>org.exh.nianhuawechatminiprogrambackend.NianhuaWechatMiniprogramBackendApplication
                     </mainClass>
-                    <skip>true</skip>
+                    <!-- 设置为false以生成可执行jar，用于Docker部署 -->
+                    <skip>false</skip>
                 </configuration>
                 <executions>
                     <execution>

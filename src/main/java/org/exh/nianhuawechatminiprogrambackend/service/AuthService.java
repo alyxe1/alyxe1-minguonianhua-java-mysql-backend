@@ -1,5 +1,6 @@
 package org.exh.nianhuawechatminiprogrambackend.service;
 
+import org.exh.nianhuawechatminiprogrambackend.dto.request.UpdateAvatarAndNicknameRequest;
 import org.exh.nianhuawechatminiprogrambackend.dto.request.WechatLoginRequest;
 import org.exh.nianhuawechatminiprogrambackend.dto.response.TokenRefreshResponse;
 import org.exh.nianhuawechatminiprogrambackend.dto.response.WechatLoginResponse;
@@ -31,4 +32,11 @@ public interface AuthService {
      * @return 登录响应
      */
     WechatLoginResponse mockWechatLogin(WechatLoginRequest request);
+
+    /**
+     * 修改用户头像和昵称
+     * @param request 修改请求
+     * @return 操作结果
+     */
+    String updateAvatarAndNickname(UpdateAvatarAndNicknameRequest request);
 }

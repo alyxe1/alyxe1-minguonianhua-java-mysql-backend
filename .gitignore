@@ -36,10 +36,26 @@ build/
 .env
 .env.local
 .env.*.local
+.env.docker  # 包含敏感配置信息
 
 ### CLAUDE
 models_settings/
 CLAUDE.md
 CLAUDE.md.example
 
+### Docker generated files ###
+# 数据库初始化脚本由脚本自动生成
+docker/mysql/init/02-schema.sql
+
+### 敏感文件 ###
+*.pem  # SSH密钥和证书文件
+*.key  # 密钥文件
+*.p12  # 证书文件
+*.pfx  # 证书文件
+
+### 部署脚本 ###
+deploy-*.sh  # 包含服务器信息的部署脚本
+
+### 其它 ###
 民国年华小程序需求文档.pdf
+logs/  # 日志目录

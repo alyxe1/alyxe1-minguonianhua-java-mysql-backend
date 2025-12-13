@@ -9,6 +9,18 @@ echo "  民国年华小程序后端 - Docker 部署"
 echo "=========================================="
 echo ""
 
+# 准备数据库初始化脚本
+echo "📋 准备数据库初始化脚本..."
+if [ ! -f docker/mysql/init/02-schema.sql ] || [ ! -s docker/mysql/init/02-schema.sql ]; then
+    echo "正在从 src/main/resources/db/schema.sql 生成数据库初始化脚本..."
+    # 删除 CREATE DATABASE 和 USE 语句，保留所有建表语句
+    grep -v "CREATE DATABASE" src/main/resources/db/schema.sql | grep -v "^USE " > docker/mysql/init/02-schema.sql
+    echo "✅ 数据库初始化脚本已生成"
+else
+    echo "✅ 数据库初始化脚本已存在"
+fi
+echo ""
+
 # 检查 Docker
 if ! command -v docker &> /dev/null; then
     echo "❌ 错误: 未安装 Docker"

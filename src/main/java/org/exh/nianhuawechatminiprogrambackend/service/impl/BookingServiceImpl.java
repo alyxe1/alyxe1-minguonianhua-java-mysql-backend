@@ -1,20 +1,26 @@
 package org.exh.nianhuawechatminiprogrambackend.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.exh.nianhuawechatminiprogrambackend.dto.request.BookingDetailRequest;
 import org.exh.nianhuawechatminiprogrambackend.dto.request.CreateBookingRequest;
 import org.exh.nianhuawechatminiprogrambackend.dto.request.SelectedGood;
 import org.exh.nianhuawechatminiprogrambackend.dto.request.SelectedSeat;
-import org.exh.nianhuawechatminiprogrambackend.dto.response.CreateBookingResponse;
+import org.exh.nianhuawechatminiprogrambackend.dto.request.UserBookingListRequest;
+import org.exh.nianhuawechatminiprogrambackend.dto.response.*;
 import org.exh.nianhuawechatminiprogrambackend.entity.*;
+import org.exh.nianhuawechatminiprogrambackend.enums.BookingStatus;
 import org.exh.nianhuawechatminiprogrambackend.enums.ResultCode;
 import org.exh.nianhuawechatminiprogrambackend.exception.BusinessException;
 import org.exh.nianhuawechatminiprogrambackend.mapper.*;
 import org.exh.nianhuawechatminiprogrambackend.service.BookingService;
 import org.exh.nianhuawechatminiprogrambackend.util.SeatLockManager;
 import org.exh.nianhuawechatminiprogrambackend.util.IdGenerator;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +57,15 @@ public class BookingServiceImpl implements BookingService {
 
     @Autowired
     private BookingGoodsMapper bookingGoodsMapper;
+
+    @Autowired
+    private OrderMapper orderMapper;
+
+    @Autowired
+    private ThemeMapper themeMapper;
+
+    @Autowired
+    private UserMapper userMapper;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -454,6 +469,359 @@ public class BookingServiceImpl implements BookingService {
 
         log.info("库存扣减成功，座位：{}，化妆：{}，摄影：{}",
                 totalSeatConsumption, makeupConsumption, photographyConsumption);
+    }
+
+    @Override
+    public PageResult<BookingListItemDTO> getUserBookingList(Long userId, UserBookingListRequest request) {
+        log.info("查询用户预订列表，userId={}, pageNum={}, pageSize={}, status={}",
+                userId, request.getPageNum(), request.getPageSize(), request.getStatus());
+
+        try {
+            // 1. 构建查询条件
+            LambdaQueryWrapper<Booking> queryWrapper = new LambdaQueryWrapper<Booking>()
+                    .eq(Booking::getUserId, userId)
+                    .eq(Booking::getIsDeleted, 0)
+                    .orderByDesc(Booking::getCreatedAt);
+
+            // 2. 状态筛选
+            if (request.getStatus() != null && !request.getStatus().isEmpty()) {
+                BookingStatus statusEnum = BookingStatus.fromCode(request.getStatus());
+                if (statusEnum != null) {
+                    queryWrapper.eq(Booking::getStatus, statusEnum.getDbValue());
+                }
+            }
+
+            // 3. 分页查询
+            Page<Booking> page = new Page<>(request.getPageNum(), request.getPageSize());
+            IPage<Booking> bookingPage = bookingMapper.selectPage(page, queryWrapper);
+
+            if (bookingPage.getRecords().isEmpty()) {
+                log.info("用户暂无预订记录，userId={}", userId);
+                return PageResult.of(new ArrayList<>(), 0L, request.getPageNum(), request.getPageSize());
+            }
+
+            // 4. 构建结果
+            List<BookingListItemDTO> items = new ArrayList<>();
+            for (Booking booking : bookingPage.getRecords()) {
+                BookingListItemDTO item = convertToBookingListItem(booking);
+                items.add(item);
+            }
+
+            log.info("查询用户预订列表成功，共{}条记录", bookingPage.getTotal());
+            return PageResult.of(items, bookingPage.getTotal(), (int) bookingPage.getCurrent(), (int) bookingPage.getSize());
+
+        } catch (Exception e) {
+            log.error("查询用户预订列表失败，userId={}", userId, e);
+            throw e;
+        }
+    }
+
+    /**
+     * 转换Booking为BookingListItemDTO
+     */
+    private BookingListItemDTO convertToBookingListItem(Booking booking) {
+        BookingListItemDTO dto = new BookingListItemDTO();
+        dto.setId(booking.getId());
+        dto.setBookingId(String.valueOf(booking.getId()));
+        dto.setAmount(convertToYuan(booking.getTotalAmount()));
+
+        // 设置状态
+        BookingStatus statusEnum = BookingStatus.fromDbValue(booking.getStatus());
+        dto.setStatus(statusEnum != null ? statusEnum.getCode() : "unknown");
+        dto.setStatusName(statusEnum != null ? statusEnum.getName() : "未知");
+
+        dto.setCreatedAt(booking.getCreatedAt());
+
+        // 查询关联信息
+        fillOrderInfo(dto, booking);
+        fillBookingInfo(dto, booking);
+
+        return dto;
+    }
+
+    /**
+     * 填充订单信息
+     */
+    private void fillOrderInfo(BookingListItemDTO dto, Booking booking) {
+        try {
+            // 查询订单信息
+            LambdaQueryWrapper<Order> orderQuery = new LambdaQueryWrapper<Order>()
+                    .eq(Order::getBookingId, booking.getId())
+                    .orderByDesc(Order::getCreatedAt)
+                    .last("LIMIT 1");
+
+            Order order = orderMapper.selectOne(orderQuery);
+            if (order != null) {
+                // 设置支付方式和支付时间
+                if (order.getPaymentMethod() != null && !order.getPaymentMethod().isEmpty()) {
+                    dto.setPaymentMethod(order.getPaymentMethod());
+                }
+                if (order.getPaymentTime() != null && !order.getPaymentTime().equals("1970-01-01 00:00:00")) {
+                    dto.setPaymentTime(order.getPaymentTime());
+                }
+            }
+        } catch (Exception e) {
+            log.error("填充订单信息失败，bookingId={}", booking.getId(), e);
+        }
+    }
+
+    /**
+     * 填充预订信息（主题、场次、人数）
+     */
+    private void fillBookingInfo(BookingListItemDTO dto, Booking booking) {
+        try {
+            BookingInfoDTO bookingInfo = new BookingInfoDTO();
+
+            // 查询主题信息
+            Theme theme = themeMapper.selectById(booking.getThemeId());
+            if (theme != null) {
+                bookingInfo.setThemeTitle(theme.getTitle());
+                bookingInfo.setThemePic(theme.getCoverImage());
+            }
+
+            // 查询每日场次信息
+            DailySession dailySession = dailySessionMapper.selectById(booking.getDailySessionId());
+            if (dailySession != null) {
+                // 查询场次模板
+                Session session = sessionMapper.selectById(dailySession.getSessionId());
+                if (session != null) {
+                    // 拼接场次时间：日期 + 开始时间
+                    LocalDateTime sessionTime = LocalDateTime.of(
+                            booking.getBookingDate(),
+                            session.getStartTime()
+                    );
+                    bookingInfo.setSessionTime(sessionTime);
+                }
+            }
+
+            // 设置人数（座位数量）
+            bookingInfo.setPeopleCount(booking.getSeatCount());
+
+            dto.setBookingInfo(bookingInfo);
+        } catch (Exception e) {
+            log.error("填充预订信息失败，bookingId={}", booking.getId(), e);
+        }
+    }
+
+    @Override
+    public BookingDetailResponse getBookingDetail(BookingDetailRequest request) {
+        log.info("查询预订详情，bookingId={}, userId={}", request.getBookingId(), request.getUserId());
+
+        try {
+            // 1. 查询预订信息
+            Long bookingId = Long.valueOf(request.getBookingId());
+            Booking booking = bookingMapper.selectById(bookingId);
+            if (booking == null) {
+                log.error("预订不存在，bookingId={}", bookingId);
+                throw new RuntimeException("预订不存在");
+            }
+
+            // 2. 验证用户权限
+            if (!booking.getUserId().toString().equals(request.getUserId())) {
+                log.error("用户无权访问该预订，bookingUserId={}, requestUserId={}",
+                        booking.getUserId(), request.getUserId());
+                throw new RuntimeException("无权访问该预订");
+            }
+
+            // 3. 构建响应
+            BookingDetailResponse response = new BookingDetailResponse();
+
+            // 4. 构建预订详情
+            BookingDetailDTO bookingDetail = buildBookingDetail(booking);
+            response.setBookingDetail(bookingDetail);
+
+            // 5. 查询并设置主题相关信息
+            fillThemeInfo(response, booking);
+
+            log.info("查询预订详情成功，bookingId={}", bookingId);
+            return response;
+
+        } catch (Exception e) {
+            log.error("查询预订详情失败，bookingId={}", request.getBookingId(), e);
+            throw e;
+        }
+    }
+
+    /**
+     * 构建预订详情
+     */
+    private BookingDetailDTO buildBookingDetail(Booking booking) {
+        BookingDetailDTO dto = new BookingDetailDTO();
+        dto.setOrderId(String.valueOf(booking.getId()));
+        dto.setDate(booking.getBookingDate().toString());
+
+        // 设置支付状态
+        BookingStatus statusEnum = BookingStatus.fromDbValue(booking.getStatus());
+        if (statusEnum != null) {
+            dto.setPaymentStatus(statusEnum.getCode());
+        } else {
+            dto.setPaymentStatus("unknown");
+        }
+
+        // 设置时间戳
+        dto.setTimeStamp(String.valueOf(System.currentTimeMillis()));
+
+        // 查询订单信息获取支付状态和时间
+        Order order = getOrderByBookingId(booking.getId());
+        if (order != null && order.getPaymentTime() != null && !order.getPaymentTime().equals("1970-01-01 00:00:00")) {
+            // 已支付
+            dto.setPaymentStatus("paid");
+        }
+
+        // 设置过期时间（预订创建时间+10分钟）
+        java.time.LocalDateTime expireTime = booking.getCreatedAt().plusMinutes(10);
+        dto.setExpireTime(expireTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
+
+        // 查询用户联系电话
+        User user = userMapper.selectById(booking.getUserId());
+        if (user != null && user.getPhone() != null && !user.getPhone().isEmpty()) {
+            dto.setContactPhone(user.getPhone());
+        } else {
+            dto.setContactPhone("");
+        }
+
+        // 查询选中的座位
+        dto.setSelectedSeatList(getSelectedSeats(booking.getId()));
+
+        // 查询选中的商品（转换为对象列表）
+        dto.setSelectedGoodList(getSelectedGoodsInfo(booking.getId()));
+
+        // 计算参考价格（expectedPrice）- 转换为元
+        Long expectedPriceInFen = calculateExpectedPrice(booking.getId());
+        Long expectedPriceInYuan = expectedPriceInFen / 100; // 分转换为元
+        dto.setExpectedPrice(String.valueOf(expectedPriceInYuan));
+
+        return dto;
+    }
+
+    /**
+     * 根据bookingId查询订单
+     */
+    private Order getOrderByBookingId(Long bookingId) {
+        LambdaQueryWrapper<Order> query = new LambdaQueryWrapper<Order>()
+                .eq(Order::getBookingId, bookingId)
+                .orderByDesc(Order::getCreatedAt)
+                .last("LIMIT 1");
+        return orderMapper.selectOne(query);
+    }
+
+    /**
+     * 获取选中的座位列表
+     */
+    private List<SeatDetailDTO> getSelectedSeats(Long bookingId) {
+        List<SeatDetailDTO> seatList = new ArrayList<>();
+
+        LambdaQueryWrapper<BookingSeat> query = new LambdaQueryWrapper<BookingSeat>()
+                .eq(BookingSeat::getBookingId, bookingId);
+
+        List<BookingSeat> bookingSeats = bookingSeatMapper.selectList(query);
+        for (BookingSeat bookingSeat : bookingSeats) {
+            SeatDetailDTO seatDTO = new SeatDetailDTO();
+            seatDTO.setSeatId(String.valueOf(bookingSeat.getSeatId()));
+            seatDTO.setSeatName(bookingSeat.getSeatName() != null ? bookingSeat.getSeatName() : "");
+            seatList.add(seatDTO);
+        }
+
+        return seatList;
+    }
+
+    /**
+     * 获取选中的商品信息列表
+     */
+    private List<SelectedGoodInfoDTO> getSelectedGoodsInfo(Long bookingId) {
+        List<SelectedGoodInfoDTO> goodsInfoList = new ArrayList<>();
+
+        // 查询预订商品关联
+        LambdaQueryWrapper<BookingGoods> query = new LambdaQueryWrapper<BookingGoods>()
+                .eq(BookingGoods::getBookingId, bookingId);
+
+        List<BookingGoods> bookingGoodsList = bookingGoodsMapper.selectList(query);
+
+        // 构建商品信息列表
+        if (!bookingGoodsList.isEmpty()) {
+            for (BookingGoods bookingGoods : bookingGoodsList) {
+                SelectedGoodInfoDTO goodsInfo = new SelectedGoodInfoDTO();
+                goodsInfo.setGoodId(String.valueOf(bookingGoods.getGoodsId()));
+                goodsInfo.setSelectedCount(bookingGoods.getQuantity());
+                goodsInfoList.add(goodsInfo);
+            }
+        }
+
+        return goodsInfoList;
+    }
+
+    /**
+     * 计算参考价格（内部方法，返回分）
+     * 基于booking_goods表中的商品数量和goods表中的价格计算
+     * @return 价格（分）
+     */
+    private Long calculateExpectedPrice(Long bookingId) {
+        try {
+            // 查询预订商品关联
+            LambdaQueryWrapper<BookingGoods> query = new LambdaQueryWrapper<BookingGoods>()
+                    .eq(BookingGoods::getBookingId, bookingId);
+
+            List<BookingGoods> bookingGoodsList = bookingGoodsMapper.selectList(query);
+
+            if (bookingGoodsList.isEmpty()) {
+                log.info("预订没有关联商品，bookingId={}", bookingId);
+                return 0L;
+            }
+
+            // 计算总价（分）
+            long totalPrice = 0L;
+            for (BookingGoods bookingGoods : bookingGoodsList) {
+                // 查询商品信息获取价格
+                Goods goods = goodsMapper.selectById(bookingGoods.getGoodsId());
+                if (goods != null) {
+                    long goodsTotalPrice = goods.getPrice() * bookingGoods.getQuantity();
+                    totalPrice += goodsTotalPrice;
+                    log.debug("商品计算：goodsId={}, price={}, quantity={}, subtotal={}",
+                            goods.getId(), goods.getPrice(), bookingGoods.getQuantity(), goodsTotalPrice);
+                } else {
+                    log.warn("未找到商品信息，goodsId={}", bookingGoods.getGoodsId());
+                }
+            }
+
+            log.info("参考价格计算完成，bookingId={}, expectedPrice={}分", bookingId, totalPrice);
+            return totalPrice;
+
+        } catch (Exception e) {
+            log.error("计算参考价格失败，bookingId={}", bookingId, e);
+            return 0L; // 出错时返回0
+        }
+    }
+
+    /**
+     * 填充主题相关信息
+     */
+    private void fillThemeInfo(BookingDetailResponse response, Booking booking) {
+        // 查询主题信息
+        Theme theme = themeMapper.selectById(booking.getThemeId());
+        if (theme != null) {
+            response.setThemeName(theme.getTitle());
+            response.setThemePic(theme.getCoverImage());
+            response.setAddress(theme.getAddress());
+        }
+
+        // 查询场次类型
+        DailySession dailySession = dailySessionMapper.selectById(booking.getDailySessionId());
+        if (dailySession != null) {
+            Session session = sessionMapper.selectById(dailySession.getSessionId());
+            if (session != null) {
+                response.setSessionType(session.getSessionType());
+            }
+        }
+    }
+
+    /**
+     * 分转换为元
+     */
+    private java.math.BigDecimal convertToYuan(Long fen) {
+        if (fen == null) {
+            return java.math.BigDecimal.ZERO;
+        }
+        return java.math.BigDecimal.valueOf(fen).divide(java.math.BigDecimal.valueOf(100));
     }
 
     /**

@@ -32,9 +32,9 @@ public class SessionSeatDetailServiceImpl implements SessionSeatDetailService {
     private static final String SEAT_TYPE_MIDDLE = "middle";
     private static final String SEAT_TYPE_BACK = "back";
 
-    private static final String SEAT_TYPE_FRONT_NAME = "内场";
-    private static final String SEAT_TYPE_MIDDLE_NAME = "中场";
-    private static final String SEAT_TYPE_BACK_NAME = "外场";
+    private static final String SEAT_TYPE_FRONT_NAME = "front";
+    private static final String SEAT_TYPE_MIDDLE_NAME = "middle";
+    private static final String SEAT_TYPE_BACK_NAME = "back";
 
     @Autowired
     private SessionMapper sessionMapper;

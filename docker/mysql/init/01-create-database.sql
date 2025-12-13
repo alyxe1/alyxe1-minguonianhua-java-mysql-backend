@@ -1,6 +1,2 @@
--- 创建数据库（如果application.yml配置了自动建表，此步骤可选）
-CREATE DATABASE IF NOT EXISTS nianhua DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- 授权给nianhua用户（如果使用非root用户）
--- GRANT ALL PRIVILEGES ON nianhua.* TO 'nianhua'@'%';
--- FLUSH PRIVILEGES;
+-- 切换到 nianhua 数据库（由 docker-compose.yml 中的 MYSQL_DATABASE 环境变量自动创建）
+USE nianhua;

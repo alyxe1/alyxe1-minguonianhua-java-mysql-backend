@@ -1,6 +1,7 @@
 package org.exh.nianhuawechatminiprogrambackend.service.impl;
 
 import lombok.extern.slf4j.Slf4j;
+import org.exh.nianhuawechatminiprogrambackend.dto.request.UpdateAvatarAndNicknameRequest;
 import org.exh.nianhuawechatminiprogrambackend.dto.request.WechatLoginRequest;
 import org.exh.nianhuawechatminiprogrambackend.dto.response.*;
 import org.exh.nianhuawechatminiprogrambackend.entity.User;
@@ -246,5 +247,53 @@ public class AuthServiceImpl implements AuthService {
     private String generateMockUnionid(String openid) {
         // 缩短前缀，确保总长度不超过32个字符（数据库限制）
         return "m_" + openid.substring(0, Math.min(30, openid.length()));
+    }
+
+    @Override
+    public String updateAvatarAndNickname(UpdateAvatarAndNicknameRequest request) {
+        log.info("修改用户头像和昵称，userId={}", request.getUserId());
+
+        // 1. 验证用户ID
+        Long userId;
+        try {
+            userId = Long.valueOf(request.getUserId());
+        } catch (NumberFormatException e) {
+            log.error("用户ID格式错误，userId={}", request.getUserId());
+            throw new BusinessException(ResultCode.BAD_REQUEST, "用户ID格式错误");
+        }
+
+        // 2. 查询用户
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            log.error("用户不存在，userId={}", userId);
+            throw new BusinessException(ResultCode.USER_NOT_FOUND, "用户不存在");
+        }
+
+        // 3. 检查是否需要更新
+        boolean needUpdate = false;
+
+        // 更新头像
+        if (request.getAvatarUrl() != null && !request.getAvatarUrl().equals(user.getAvatarUrl())) {
+            user.setAvatarUrl(request.getAvatarUrl());
+            needUpdate = true;
+            log.info("更新头像，userId={}", userId);
+        }
+
+        // 更新昵称
+        if (request.getNickname() != null && !request.getNickname().equals(user.getNickname())) {
+            user.setNickname(request.getNickname());
+            needUpdate = true;
+            log.info("更新昵称，userId={}", userId);
+        }
+
+        // 4. 执行更新
+        if (needUpdate) {
+            userMapper.updateById(user);
+            log.info("用户头像和昵称更新成功，userId={}", userId);
+        } else {
+            log.info("用户信息无需更新，userId={}", userId);
+        }
+
+        return "success";
     }
 }

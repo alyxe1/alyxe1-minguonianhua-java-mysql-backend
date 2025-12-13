@@ -58,7 +58,7 @@ jwt:
 
 wx:
   miniapp:
-    appid: ${WX_APPID:wx9d30dac0ab066bfo}
+    appid: ${WX_APPID:wx9d30dac0ab066bfd}
     secret: ${WX_SECRET:2ab4e85b6c384ba27d82556ebe3862c6}
   pay:
     mchid: ${WX_MCHID:your_mchid}

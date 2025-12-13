@@ -4,12 +4,11 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
 import lombok.extern.slf4j.Slf4j;
+import org.exh.nianhuawechatminiprogrambackend.dto.request.BookingDetailRequest;
 import org.exh.nianhuawechatminiprogrambackend.dto.request.CheckSeatRequest;
 import org.exh.nianhuawechatminiprogrambackend.dto.request.CreateBookingRequest;
-import org.exh.nianhuawechatminiprogrambackend.dto.response.CheckSeatResponse;
-import org.exh.nianhuawechatminiprogrambackend.dto.response.CreateBookingResponse;
-import org.exh.nianhuawechatminiprogrambackend.dto.response.SessionSeatDetailResponse;
-import org.exh.nianhuawechatminiprogrambackend.dto.response.ThemeDetailResponse;
+import org.exh.nianhuawechatminiprogrambackend.dto.request.UserBookingListRequest;
+import org.exh.nianhuawechatminiprogrambackend.dto.response.*;
 import org.exh.nianhuawechatminiprogrambackend.service.BookingService;
 import org.exh.nianhuawechatminiprogrambackend.service.CheckSeatService;
 import org.exh.nianhuawechatminiprogrambackend.service.SessionSeatDetailService;
@@ -18,7 +17,10 @@ import org.exh.nianhuawechatminiprogrambackend.utils.Result;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
+import javax.validation.constraints.Max;
+import javax.validation.constraints.Min;
 
 /**
  * 预订控制器
@@ -93,6 +95,71 @@ public class BookingController {
         CreateBookingResponse response = bookingService.createBooking(request);
 
         log.info("创建预订成功，bookingId={}, amount={}", response.getBookingId(), response.getAmount());
+        return Result.success(response);
+    }
+
+    @ApiOperation(value = "获取用户预订列表", notes = "用户点击下方导航栏上的预订按钮后展示预订列表，可按状态筛选")
+    @GetMapping("/list")
+    public Result<PageResult<BookingListItemDTO>> getUserBookingList(
+            @ApiParam("页码")
+            @RequestParam(value = "pageNum", required = false, defaultValue = "1")
+            @Min(value = 1, message = "页码最小值为1")
+            Integer pageNum,
+
+            @ApiParam("每页数量")
+            @RequestParam(value = "pageSize", required = false, defaultValue = "10")
+            @Min(value = 1, message = "每页数量最小值为1")
+            @Max(value = 100, message = "每页数量最大值为100")
+            Integer pageSize,
+
+            @ApiParam(value = "状态筛选", allowableValues = "pending,paid,cancelled,refunded,completed")
+            @RequestParam(value = "status", required = false)
+            String status,
+
+            HttpServletRequest request) {
+
+        // 从token获取用户ID
+        Long userId = (Long) request.getAttribute("userId");
+        log.info("获取用户预订列表，userId={}, pageNum={}, pageSize={}, status={}", userId, pageNum, pageSize, status);
+
+        UserBookingListRequest bookingListRequest = new UserBookingListRequest();
+        bookingListRequest.setPageNum(pageNum);
+        bookingListRequest.setPageSize(pageSize);
+        bookingListRequest.setStatus(status);
+
+        PageResult<BookingListItemDTO> result = bookingService.getUserBookingList(userId, bookingListRequest);
+
+        log.info("获取用户预订列表成功，共{}条记录", result.getTotal());
+        return Result.success(result);
+    }
+
+    @ApiOperation(value = "获取预订详情", notes = "用户点击预订列表中某一个预订后，展示预订详情")
+    @GetMapping("/queryDetail")
+    public Result<BookingDetailResponse> getBookingDetail(
+            @ApiParam(value = "预订ID", required = true)
+            @RequestParam("bookingId") String bookingId,
+
+            @ApiParam(value = "用户ID", required = true)
+            @RequestParam("userId") String userId,
+
+            HttpServletRequest request) {
+
+        log.info("获取预订详情，bookingId={}, userId={}", bookingId, userId);
+
+        // 验证用户权限（从token获取的用户ID必须与请求的用户ID一致）
+        Long tokenUserId = (Long) request.getAttribute("userId");
+        if (!tokenUserId.toString().equals(userId)) {
+            log.error("用户权限验证失败，tokenUserId={}, requestUserId={}", tokenUserId, userId);
+            throw new RuntimeException("无权访问该预订详情");
+        }
+
+        BookingDetailRequest bookingDetailRequest = new BookingDetailRequest();
+        bookingDetailRequest.setBookingId(bookingId);
+        bookingDetailRequest.setUserId(userId);
+
+        BookingDetailResponse response = bookingService.getBookingDetail(bookingDetailRequest);
+
+        log.info("获取预订详情成功，bookingId={}", bookingId);
         return Result.success(response);
     }
 }

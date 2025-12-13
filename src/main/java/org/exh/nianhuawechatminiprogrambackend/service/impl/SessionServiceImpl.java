@@ -4,10 +4,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.exh.nianhuawechatminiprogrambackend.dto.response.AvailableSessionsResponse;
 import org.exh.nianhuawechatminiprogrambackend.dto.response.SessionItem;
 import org.exh.nianhuawechatminiprogrambackend.entity.DailySession;
+import org.exh.nianhuawechatminiprogrambackend.entity.Seat;
 import org.exh.nianhuawechatminiprogrambackend.entity.Session;
 import org.exh.nianhuawechatminiprogrambackend.enums.ResultCode;
 import org.exh.nianhuawechatminiprogrambackend.exception.BusinessException;
+import org.exh.nianhuawechatminiprogrambackend.mapper.BookingSeatMapper;
 import org.exh.nianhuawechatminiprogrambackend.mapper.DailySessionMapper;
+import org.exh.nianhuawechatminiprogrambackend.mapper.SeatMapper;
 import org.exh.nianhuawechatminiprogrambackend.mapper.SessionMapper;
 import org.exh.nianhuawechatminiprogrambackend.service.SessionService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 场次服务实现类
@@ -32,6 +37,12 @@ public class SessionServiceImpl implements SessionService {
 
     @Autowired
     private DailySessionMapper dailySessionMapper;
+
+    @Autowired
+    private SeatMapper seatMapper;
+
+    @Autowired
+    private BookingSeatMapper bookingSeatMapper;
 
     @Override
     @Transactional
@@ -79,29 +90,61 @@ public class SessionServiceImpl implements SessionService {
             item.setTitle(session.getSessionName() + " " +
                          session.getStartTime() + "-" + session.getEndTime());
 
-            // 创建descList
+            // 创建descList（按区域显示剩余座位数）
             List<String> descList = new ArrayList<>();
 
-            // 席位余量
-            Integer availableSeats = dailySession.getAvailableSeats();
-            if (availableSeats == null) {
-                availableSeats = 0;
-            }
-            descList.add("席位 余 " + availableSeats);
+            // 1. 查询该场次的所有座位，按seat_type分组统计
+            List<Seat> allSeats = seatMapper.selectList(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Seat>()
+                            .eq(Seat::getSessionTemplateId, session.getId())
+            );
 
-            // 化妆余量
-            Integer makeupStock = dailySession.getMakeupStock();
-            if (makeupStock == null) {
-                makeupStock = 0;
+            // 按区域统计总座位数
+            Map<String, Long> totalSeatsByArea = new HashMap<>();
+            for (Seat seat : allSeats) {
+                String seatType = seat.getSeatType();
+                if (seatType == null) {
+                    seatType = "front"; // 默认值为front
+                }
+                totalSeatsByArea.put(seatType, totalSeatsByArea.getOrDefault(seatType, 0L) + 1);
             }
-            descList.add("化妆 余 " + makeupStock);
 
-            // 摄影余量
-            Integer photographyStock = dailySession.getPhotographyStock();
-            if (photographyStock == null) {
-                photographyStock = 0;
+            log.debug("场次ID={}, 各区域总座位数={}", session.getId(), totalSeatsByArea);
+
+            // 2. 查询该场次该日期下已预订的座位（排除已取消的预订）
+            List<Long> bookedSeatIds = bookingSeatMapper.selectBookedSeatIds(session.getId(), queryDate);
+            log.debug("场次ID={}, 日期={}, 已预订座位数={}", session.getId(), queryDate, bookedSeatIds.size());
+
+            // 3. 按区域统计已预订座位数
+            Map<String, Long> bookedSeatsByArea = new HashMap<>();
+            for (Long seatId : bookedSeatIds) {
+                // 查询座位的seat_type
+                Seat seat = seatMapper.selectById(seatId);
+                if (seat != null) {
+                    String seatType = seat.getSeatType();
+                    if (seatType == null) {
+                        seatType = "front";
+                    }
+                    bookedSeatsByArea.put(seatType, bookedSeatsByArea.getOrDefault(seatType, 0L) + 1);
+                }
             }
-            descList.add("摄影 余 " + photographyStock);
+
+            log.debug("场次ID={}, 各区域已预订座位数={}", session.getId(), bookedSeatsByArea);
+
+            // 4. 计算并生成descList（按front、middle、back顺序）
+            String[] areaOrder = {"front", "middle", "back"};
+            String[] areaNames = {"内场", "中场", "外场"};
+
+            for (int i = 0; i < areaOrder.length; i++) {
+                String area = areaOrder[i];
+                String areaName = areaNames[i];
+
+                long total = totalSeatsByArea.getOrDefault(area, 0L);
+                long booked = bookedSeatsByArea.getOrDefault(area, 0L);
+                long remaining = total - booked;
+
+                descList.add(areaName + " 余 " + remaining);
+            }
 
             item.setDescList(descList);
             items.add(item);

@@ -3,9 +3,12 @@ package org.exh.nianhuawechatminiprogrambackend.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.exh.nianhuawechatminiprogrambackend.dto.response.GoodsItem;
 import org.exh.nianhuawechatminiprogrambackend.dto.response.GoodsQueryResponse;
+import org.exh.nianhuawechatminiprogrambackend.dto.response.SeatConsumptionConfig;
 import org.exh.nianhuawechatminiprogrambackend.entity.Goods;
 import org.exh.nianhuawechatminiprogrambackend.enums.ResultCode;
 import org.exh.nianhuawechatminiprogrambackend.exception.BusinessException;
@@ -27,6 +30,9 @@ public class GoodsServiceImpl implements GoodsService {
 
     @Autowired
     private GoodsMapper goodsMapper;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Override
     public GoodsQueryResponse queryGoods(String type, Integer pageNum, Integer pageSize) {
@@ -130,6 +136,31 @@ public class GoodsServiceImpl implements GoodsService {
         // 价格从分转换为元，保留两位小数
         double priceInYuan = goods.getPrice() / 100.0;
         item.setPrice(String.format("%.2f", priceInYuan));
+
+        // 解析座位消耗配置（仅对座位商品包和套餐类型有效）
+        if ("seat_package".equals(goods.getCategory()) || "sets".equals(goods.getCategory())) {
+            try {
+                if (goods.getSeatConsumptionConfig() != null && !goods.getSeatConsumptionConfig().isEmpty()) {
+                    List<SeatConsumptionConfig> configList = objectMapper.readValue(
+                            goods.getSeatConsumptionConfig(),
+                            new TypeReference<List<SeatConsumptionConfig>>() {}
+                    );
+                    item.setSeatConsumptionConfig(configList);
+                    log.debug("商品ID={}的座位消耗配置解析成功，配置={}", goods.getId(), configList);
+                } else {
+                    // 如果配置为空，返回默认的空配置
+                    item.setSeatConsumptionConfig(new ArrayList<>());
+                }
+            } catch (Exception e) {
+                log.error("解析商品ID={}的座位消耗配置失败，配置内容={}，错误={}",
+                         goods.getId(), goods.getSeatConsumptionConfig(), e.getMessage());
+                // 解析失败时返回空列表
+                item.setSeatConsumptionConfig(new ArrayList<>());
+            }
+        } else {
+            // 非座位相关商品，不返回座位消耗配置
+            item.setSeatConsumptionConfig(null);
+        }
 
         return item;
     }
