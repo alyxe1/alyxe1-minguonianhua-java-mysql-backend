@@ -743,6 +743,23 @@ public class BookingServiceImpl implements BookingService {
                 SelectedGoodInfoDTO goodsInfo = new SelectedGoodInfoDTO();
                 goodsInfo.setGoodId(String.valueOf(bookingGoods.getGoodsId()));
                 goodsInfo.setSelectedCount(bookingGoods.getQuantity());
+
+                // 查询商品信息获取名称和价格
+                Goods goods = goodsMapper.selectById(bookingGoods.getGoodsId());
+                if (goods != null) {
+                    goodsInfo.setGoodName(goods.getName());
+                    // 价格从分转换为元，保留两位小数
+                    double priceInYuan = goods.getPrice() / 100.0;
+                    goodsInfo.setGoodPrice(String.format("%.2f", priceInYuan));
+                    log.debug("商品详情：goodsId={}, name={}, price={}, quantity={}",
+                             goods.getId(), goods.getName(), goods.getPrice(), bookingGoods.getQuantity());
+                } else {
+                    // 商品不存在时设置默认值
+                    goodsInfo.setGoodName("未知商品");
+                    goodsInfo.setGoodPrice("0.00");
+                    log.warn("商品不存在，goodsId={}", bookingGoods.getGoodsId());
+                }
+
                 goodsInfoList.add(goodsInfo);
             }
         }

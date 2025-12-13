@@ -19,4 +19,10 @@ public class SelectedGoodInfoDTO {
 
     @ApiModelProperty(value = "选择数量", required = true)
     private Integer selectedCount;
+
+    @ApiModelProperty(value = "商品名称（对应good表中的name字段）", required = true)
+    private String goodName;
+
+    @ApiModelProperty(value = "商品价格（对应good表中的price字段，已转换为元，保留两位小数）", required = true)
+    private String goodPrice;
 }
